@@ -1,0 +1,28 @@
+name: fit_tracker
+description: "FitTracker - A modern fitness tracking app with User and Admin roles."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.7.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  firebase_core: ^4.7.0
+  firebase_auth: ^6.4.0
+  cloud_firestore: ^6.3.0
+  flutter_riverpod: ^2.6.1
+  fl_chart: ^1.2.0
+  google_fonts: ^8.0.2
+  go_router: ^17.2.2
+  http: ^1.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
