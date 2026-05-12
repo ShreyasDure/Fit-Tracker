@@ -4,14 +4,21 @@ import '../models/nutrition_model.dart';
 import 'api_config.dart';
 
 class NutritionService {
+  static final Map<String, List<NutritionItem>> _queryCache = {};
+
   /// Search nutrition info using CalorieNinjas API
   /// Supports natural language: "2 eggs and toast", "chicken breast 200g"
   static Future<List<NutritionItem>> searchNutrition(String query) async {
-    if (query.trim().isEmpty) return [];
+    final normalized = query.trim().toLowerCase();
+    if (normalized.isEmpty) return [];
+    final cached = _queryCache[normalized];
+    if (cached != null) return cached;
 
     // If API key is not set, return demo data
     if (ApiConfig.calorieNinjasApiKey == 'YOUR_API_KEY_HERE') {
-      return _getDemoResults(query);
+      final demo = _getDemoResults(query);
+      _queryCache[normalized] = demo;
+      return demo;
     }
 
     try {
@@ -23,11 +30,17 @@ class NutritionService {
       );
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
-        return data.map((e) => NutritionItem.fromJson(e)).toList();
+        final parsed = data.map((e) => NutritionItem.fromJson(e)).toList();
+        _queryCache[normalized] = parsed;
+        return parsed;
       }
-      return _getDemoResults(query);
+      final demo = _getDemoResults(query);
+      _queryCache[normalized] = demo;
+      return demo;
     } catch (e) {
-      return _getDemoResults(query);
+      final demo = _getDemoResults(query);
+      _queryCache[normalized] = demo;
+      return demo;
     }
   }
 

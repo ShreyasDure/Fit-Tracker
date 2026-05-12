@@ -40,22 +40,22 @@ class _LevelsManagementScreenState extends ConsumerState<LevelsManagementScreen>
         leading: IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => Navigator.pop(context)),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSizes.lg),
+        padding: EdgeInsets.all(AppSizes.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Min points inputs
             Container(
-              padding: const EdgeInsets.all(AppSizes.lg),
-              decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(AppSizes.cardRadius), border: Border.all(color: AppColors.neonCyan.withValues(alpha: 0.1))),
+              padding: EdgeInsets.all(AppSizes.lg),
+              decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(AppSizes.cardRadius), border: Border.all(color: AppColors.neonCyan.withValues(alpha: 0.1))),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Level Thresholds', style: Theme.of(context).textTheme.titleSmall),
                   const SizedBox(height: AppSizes.md),
-                  TextField(controller: _silverCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Silver Min Points', labelStyle: TextStyle(color: AppColors.textMuted))),
+                  TextField(controller: _silverCtrl, keyboardType: TextInputType.number, style: TextStyle(color: Colors.white), decoration: InputDecoration(labelText: 'Silver Min Points', labelStyle: TextStyle(color: Theme.of(context).textTheme.bodySmall!.color!))),
                   const SizedBox(height: AppSizes.md),
-                  TextField(controller: _goldCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Gold Min Points', labelStyle: TextStyle(color: AppColors.textMuted))),
+                  TextField(controller: _goldCtrl, keyboardType: TextInputType.number, style: TextStyle(color: Colors.white), decoration: InputDecoration(labelText: 'Gold Min Points', labelStyle: TextStyle(color: Theme.of(context).textTheme.bodySmall!.color!))),
                 ],
               ),
             ),
@@ -101,9 +101,9 @@ class _BenefitTier extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(AppSizes.lg),
+      padding: EdgeInsets.all(AppSizes.lg),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(AppSizes.cardRadius),
         border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
@@ -130,3 +130,5 @@ class _BenefitTier extends StatelessWidget {
     );
   }
 }
+
+

@@ -7,6 +7,8 @@ class UserModel {
   final int level;
   final int streak;
   final bool isActive;
+  final bool pushNotifications;
+  final bool emailReminders;
 
   const UserModel({
     required this.id,
@@ -17,6 +19,8 @@ class UserModel {
     this.level = 1,
     this.streak = 0,
     this.isActive = true,
+    this.pushNotifications = true,
+    this.emailReminders = true,
   });
 
   String get levelName {
@@ -46,6 +50,8 @@ class UserModel {
     int? level,
     int? streak,
     bool? isActive,
+    bool? pushNotifications,
+    bool? emailReminders,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -56,6 +62,8 @@ class UserModel {
       level: level ?? this.level,
       streak: streak ?? this.streak,
       isActive: isActive ?? this.isActive,
+      pushNotifications: pushNotifications ?? this.pushNotifications,
+      emailReminders: emailReminders ?? this.emailReminders,
     );
   }
 
@@ -69,6 +77,8 @@ class UserModel {
       'level': level,
       'streak': streak,
       'isActive': isActive,
+      'pushNotifications': pushNotifications,
+      'emailReminders': emailReminders,
     };
   }
 
@@ -82,6 +92,8 @@ class UserModel {
       level: map['level'] ?? 1,
       streak: map['streak'] ?? 0,
       isActive: map['isActive'] ?? true,
+      pushNotifications: map['pushNotifications'] ?? true,
+      emailReminders: map['emailReminders'] ?? true,
     );
   }
 }

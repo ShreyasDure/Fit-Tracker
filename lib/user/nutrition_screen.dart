@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/constants.dart';
 import '../controllers/nutrition_controller.dart';
+import '../models/nutrition_model.dart';
 
 class NutritionScreen extends ConsumerStatefulWidget {
   const NutritionScreen({super.key});
@@ -40,23 +41,45 @@ class _NutritionScreenState extends ConsumerState<NutritionScreen> {
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(AppSizes.lg),
+          padding: EdgeInsets.all(AppSizes.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Container(
+                padding: EdgeInsets.all(AppSizes.md),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [AppColors.neonGreen.withValues(alpha: 0.14), Theme.of(context).cardColor],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                  border: Border.all(color: AppColors.neonGreen.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _MacroSummary(label: 'Calories', value: nutrition.dailyCalories.toStringAsFixed(0), unit: 'kcal', color: AppColors.neonOrange),
+                    _MacroSummary(label: 'Protein', value: nutrition.dailyProtein.toStringAsFixed(1), unit: 'g', color: AppColors.neonCyan),
+                    _MacroSummary(label: 'Carbs', value: nutrition.dailyCarbs.toStringAsFixed(1), unit: 'g', color: AppColors.neonPurple),
+                    _MacroSummary(label: 'Fat', value: nutrition.dailyFat.toStringAsFixed(1), unit: 'g', color: AppColors.neonPink),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSizes.md),
               // Search bar
               Row(
                 children: [
                   Expanded(
                     child: TextField(
                       controller: _searchCtrl,
-                      style: const TextStyle(color: Colors.white),
+                      style: TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         hintText: 'e.g. "2 eggs and toast"',
-                        prefixIcon: const Icon(Icons.search_rounded, color: AppColors.textMuted),
+                        prefixIcon: Icon(Icons.search_rounded, color: Theme.of(context).textTheme.bodySmall!.color!),
                         suffixIcon: nutrition.query.isNotEmpty
                             ? IconButton(
-                                icon: const Icon(Icons.clear, color: AppColors.textMuted, size: 18),
+                                icon: Icon(Icons.clear, color: Theme.of(context).textTheme.bodySmall!.color!, size: 18),
                                 onPressed: () {
                                   _searchCtrl.clear();
                                   ref.read(nutritionControllerProvider.notifier).clear();
@@ -72,7 +95,7 @@ class _NutritionScreenState extends ConsumerState<NutritionScreen> {
                   GestureDetector(
                     onTap: _search,
                     child: Container(
-                      padding: const EdgeInsets.all(14),
+                      padding: EdgeInsets.all(14),
                       decoration: BoxDecoration(
                         color: AppColors.neonCyan,
                         borderRadius: BorderRadius.circular(AppSizes.inputRadius),
@@ -83,6 +106,17 @@ class _NutritionScreenState extends ConsumerState<NutritionScreen> {
                 ],
               ),
               const SizedBox(height: AppSizes.lg),
+              if (nutrition.isSaving)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSizes.sm),
+                  child: Row(
+                    children: const [
+                      SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.neonCyan)),
+                      SizedBox(width: 8),
+                      Text('Saving intake...'),
+                    ],
+                  ),
+                ),
 
               // Loading
               if (nutrition.isLoading)
@@ -93,49 +127,26 @@ class _NutritionScreenState extends ConsumerState<NutritionScreen> {
               else if (nutrition.error != null)
                 Expanded(
                   child: Center(
-                    child: Text(nutrition.error!, style: const TextStyle(color: AppColors.error)),
+                    child: Text(nutrition.error!, style: TextStyle(color: AppColors.error)),
                   ),
                 )
               // Results
               else if (nutrition.results.isNotEmpty) ...[
-                // Summary row
-                Container(
-                  padding: const EdgeInsets.all(AppSizes.md),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [AppColors.neonGreen.withValues(alpha: 0.1), AppColors.surface],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                    border: Border.all(color: AppColors.neonGreen.withValues(alpha: 0.15)),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _MacroSummary(label: 'Calories', value: nutrition.totalCalories.toStringAsFixed(0), unit: 'kcal', color: AppColors.neonOrange),
-                      _MacroSummary(label: 'Protein', value: nutrition.totalProtein.toStringAsFixed(1), unit: 'g', color: AppColors.neonCyan),
-                      _MacroSummary(label: 'Carbs', value: nutrition.totalCarbs.toStringAsFixed(1), unit: 'g', color: AppColors.neonPurple),
-                      _MacroSummary(label: 'Fat', value: nutrition.totalFat.toStringAsFixed(1), unit: 'g', color: AppColors.neonPink),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSizes.md),
                 Text('${nutrition.results.length} item(s) found', style: Theme.of(context).textTheme.labelSmall),
                 const SizedBox(height: AppSizes.sm),
                 // Food items
                 Expanded(
                   child: ListView.separated(
                     itemCount: nutrition.results.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: AppSizes.sm),
+                    separatorBuilder: (_, _) => const SizedBox(height: AppSizes.sm),
                     itemBuilder: (context, index) {
                       final item = nutrition.results[index];
                       return Container(
-                        padding: const EdgeInsets.all(AppSizes.md),
+                        padding: EdgeInsets.all(AppSizes.md),
                         decoration: BoxDecoration(
-                          color: AppColors.surface,
+                          color: Theme.of(context).cardColor,
                           borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                          border: Border.all(color: AppColors.surfaceLighter),
+                          border: Border.all(color: Theme.of(context).colorScheme.surfaceContainerHighest),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -181,6 +192,18 @@ class _NutritionScreenState extends ConsumerState<NutritionScreen> {
                                 _MacroChip(label: 'Fiber', value: '${item.fiber.toStringAsFixed(1)}g', color: AppColors.neonGreen),
                               ],
                             ),
+                            const SizedBox(height: AppSizes.sm),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () => _showQuantityDialog(item),
+                                icon: const Icon(Icons.add_rounded, size: 16, color: AppColors.neonGreen),
+                                label: const Text('Add consumed quantity', style: TextStyle(color: AppColors.neonGreen)),
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(color: AppColors.neonGreen.withValues(alpha: 0.3)),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       );
@@ -195,9 +218,9 @@ class _NutritionScreenState extends ConsumerState<NutritionScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.restaurant_menu_rounded, color: AppColors.textMuted.withValues(alpha: 0.3), size: 64),
+                        Icon(Icons.restaurant_menu_rounded, color: Theme.of(context).textTheme.bodySmall!.color!.withValues(alpha: 0.3), size: 64),
                         const SizedBox(height: AppSizes.md),
-                        Text('Search for any food', style: Theme.of(context).textTheme.titleSmall?.copyWith(color: AppColors.textMuted)),
+                        Text('Search for any food', style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Theme.of(context).textTheme.bodySmall!.color!)),
                         const SizedBox(height: AppSizes.xs),
                         Text('Try "chicken breast" or "2 eggs and toast"', style: Theme.of(context).textTheme.bodySmall),
                       ],
@@ -207,6 +230,57 @@ class _NutritionScreenState extends ConsumerState<NutritionScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Future<void> _showQuantityDialog(NutritionItem item) async {
+    final qtyCtrl = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Consumed Quantity'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('How much quantity did you consume (grams)?', style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: AppSizes.sm),
+            TextField(
+              controller: qtyCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Quantity (g)',
+                hintText: 'e.g. 50',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              final qty = double.tryParse(qtyCtrl.text.trim()) ?? 0;
+              if (qty <= 0) return;
+              try {
+                await ref.read(nutritionControllerProvider.notifier).addIntake(item: item, quantityGrams: qty);
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Added to today\'s diet'), backgroundColor: AppColors.neonGreen),
+                  );
+                }
+              } catch (_) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Failed to save intake'), backgroundColor: AppColors.error),
+                  );
+                }
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
       ),
     );
   }
@@ -241,7 +315,7 @@ class _MacroChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
+        padding: EdgeInsets.symmetric(vertical: 4, horizontal: 6),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(6),
@@ -256,3 +330,5 @@ class _MacroChip extends StatelessWidget {
     );
   }
 }
+
+

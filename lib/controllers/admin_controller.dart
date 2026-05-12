@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/user_model.dart';
 import '../models/points_config.dart';
 import '../services/mongodb_service.dart';
-import 'auth_controller.dart';
 
 // ─── Admin State ───
 
@@ -11,6 +10,8 @@ class AdminDashboardState {
   final PointsConfig pointsConfig;
   final LevelsConfig levelsConfig;
   final List<PremiumPlan> premiumPlans;
+  final Map<String, dynamic> liveAnalytics;
+  final List<Map<String, dynamic>> activityLogs;
   final bool isLoading;
   final String? error;
 
@@ -19,19 +20,23 @@ class AdminDashboardState {
     this.pointsConfig = const PointsConfig(),
     this.levelsConfig = const LevelsConfig(),
     this.premiumPlans = const [],
+    this.liveAnalytics = const {},
+    this.activityLogs = const [],
     this.isLoading = false,
     this.error,
   });
 
-  int get totalUsers => users.length;
-  int get activeUsers => users.where((u) => u.isActive).length;
-  int get premiumUsers => users.where((u) => u.points >= 5000).length;
-  int get totalPoints => users.fold(0, (sum, u) => sum + u.points);
+  int get totalUsers => (liveAnalytics['totalUsers'] as num?)?.toInt() ?? users.length;
+  int get activeUsers => (liveAnalytics['activeUsers'] as num?)?.toInt() ?? 0;
+  int get premiumUsers => (liveAnalytics['premiumUsers'] as num?)?.toInt() ?? 0;
+  int get totalPoints => (liveAnalytics['totalPoints'] as num?)?.toInt() ?? 0;
 
   AdminDashboardState copyWith({
     List<UserModel>? users,
     PointsConfig? pointsConfig,
     LevelsConfig? levelsConfig,
+    Map<String, dynamic>? liveAnalytics,
+    List<Map<String, dynamic>>? activityLogs,
     List<PremiumPlan>? premiumPlans,
     bool? isLoading,
     String? error,
@@ -41,6 +46,8 @@ class AdminDashboardState {
       pointsConfig: pointsConfig ?? this.pointsConfig,
       levelsConfig: levelsConfig ?? this.levelsConfig,
       premiumPlans: premiumPlans ?? this.premiumPlans,
+      liveAnalytics: liveAnalytics ?? this.liveAnalytics,
+      activityLogs: activityLogs ?? this.activityLogs,
       isLoading: isLoading ?? this.isLoading,
       error: error,
     );
@@ -59,6 +66,7 @@ class AdminController extends StateNotifier<AdminDashboardState> {
     Future.delayed(const Duration(milliseconds: 500), () => _loadFromBackend());
   }
 
+  // ignore: unused_field
   final Ref _ref;
 
   /// Load real users from MongoDB backend
@@ -77,10 +85,16 @@ class AdminController extends StateNotifier<AdminDashboardState> {
         }
         return UserModel.fromMap(u);
       }).toList();
+      
+      final analytics = await MongoDbService.getAdminAnalytics();
+      final logs = await MongoDbService.getAdminActivity();
+
       state = state.copyWith(
         users: users,
+        liveAnalytics: analytics,
+        activityLogs: logs,
         isLoading: false,
-        error: users.isEmpty ? 'No users registered yet. Register a user account first!' : null,
+        error: users.isEmpty ? 'No users registered yet.' : null,
       );
     } catch (e) {
       state = state.copyWith(
@@ -90,8 +104,8 @@ class AdminController extends StateNotifier<AdminDashboardState> {
     }
   }
 
-  /// Refresh users from database
-  Future<void> refreshUsers() async => _loadFromBackend();
+  /// Refresh everything
+  Future<void> refreshAll() async => _loadFromBackend();
 
   void addPoints(String userId, int amount) async {
     final users = state.users.map((u) {
@@ -111,13 +125,60 @@ class AdminController extends StateNotifier<AdminDashboardState> {
     try { await MongoDbService.updateUserPoints(userId, -amount); } catch (_) {}
   }
 
-  void toggleUserActive(String userId) async {
+  void toggleUserActive(String userId, [String reason = '']) async {
     final users = state.users.map((u) {
       if (u.id == userId) return u.copyWith(isActive: !u.isActive);
       return u;
     }).toList();
     state = state.copyWith(users: users);
-    try { await MongoDbService.toggleUserActive(userId); } catch (_) {}
+    try { 
+      await MongoDbService.toggleUserActive(userId, reason: reason);
+      refreshAll(); 
+    } catch (_) {}
+  }
+
+  Future<void> massRewardUsers({
+    required List<String> userIds,
+    required String achievement,
+    required int points,
+    int xpBonus = 0,
+  }) async {
+    try {
+      await MongoDbService.rewardUsers(
+        userIds: userIds,
+        achievementName: achievement,
+        points: points,
+        xpBonus: xpBonus,
+      );
+      refreshAll();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> createChallenge({
+    required String title,
+    required String description,
+    required String difficulty,
+    required int reward,
+    required double target,
+    required String type,
+    int durationDays = 7,
+  }) async {
+    try {
+      await MongoDbService.createAdminChallenge(
+        title: title,
+        description: description,
+        difficulty: difficulty,
+        reward: reward,
+        target: target,
+        type: type,
+        durationDays: durationDays,
+      );
+      refreshAll();
+    } catch (e) {
+      rethrow;
+    }
   }
 
   void updatePointsConfig(PointsConfig config) {

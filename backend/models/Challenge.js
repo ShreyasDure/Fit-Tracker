@@ -4,10 +4,10 @@ const challengeSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String, required: true },
   difficulty: { type: String, enum: ['easy', 'moderate', 'hard'], required: true },
-  pointsReward: { type: Number, required: true },
+  reward: { type: Number, required: true },
   durationDays: { type: Number, default: 7 },
-  targetValue: { type: Number, default: 1 }, // e.g., 5 workouts, 10km, etc.
-  targetUnit: { type: String, default: 'workouts' }, // workouts, km, minutes
+  target: { type: Number, default: 1 }, 
+  type: { type: String, default: 'steps' },
   isActive: { type: Boolean, default: true },
   participants: [{
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

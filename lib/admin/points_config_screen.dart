@@ -40,7 +40,7 @@ class _PointsConfigScreenState extends ConsumerState<PointsConfigScreen> {
     return Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppSizes.lg),
+          padding: EdgeInsets.all(AppSizes.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -58,9 +58,9 @@ class _PointsConfigScreenState extends ConsumerState<PointsConfigScreen> {
               const SizedBox(height: AppSizes.md),
               // Daily limit input
               Container(
-                padding: const EdgeInsets.all(AppSizes.lg),
+                padding: EdgeInsets.all(AppSizes.lg),
                 decoration: BoxDecoration(
-                  color: AppColors.surface,
+                  color: Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(AppSizes.cardRadius),
                   border: Border.all(color: AppColors.neonCyan.withValues(alpha: 0.1)),
                 ),
@@ -72,7 +72,7 @@ class _PointsConfigScreenState extends ConsumerState<PointsConfigScreen> {
                     TextField(
                       controller: _dailyLimitCtrl,
                       keyboardType: TextInputType.number,
-                      style: const TextStyle(color: Colors.white),
+                      style: TextStyle(color: Colors.white),
                       decoration: const InputDecoration(hintText: 'Enter limit', suffixText: 'pts'),
                     ),
                   ],
@@ -144,9 +144,9 @@ class _SliderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(AppSizes.lg),
+      padding: EdgeInsets.all(AppSizes.lg),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(AppSizes.cardRadius),
         border: Border.all(color: AppColors.neonCyan.withValues(alpha: 0.1)),
       ),
@@ -158,9 +158,9 @@ class _SliderCard extends StatelessWidget {
             children: [
               Text(label, style: Theme.of(context).textTheme.titleSmall),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: AppSizes.sm, vertical: 2),
+                padding: EdgeInsets.symmetric(horizontal: AppSizes.sm, vertical: 2),
                 decoration: BoxDecoration(color: AppColors.neonCyan.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(6)),
-                child: Text(displayValue, style: const TextStyle(color: AppColors.neonCyan, fontWeight: FontWeight.w700, fontSize: 13)),
+                child: Text(displayValue, style: TextStyle(color: AppColors.neonCyan, fontWeight: FontWeight.w700, fontSize: 13)),
               ),
             ],
           ),
@@ -183,9 +183,9 @@ class _NavCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(AppSizes.lg),
+        padding: EdgeInsets.all(AppSizes.lg),
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(AppSizes.cardRadius),
           border: Border.all(color: color.withValues(alpha: 0.15)),
         ),
@@ -200,3 +200,4 @@ class _NavCard extends StatelessWidget {
     );
   }
 }
+

@@ -46,7 +46,7 @@ class SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(
+      padding: EdgeInsets.symmetric(
         horizontal: AppSizes.xs,
         vertical: AppSizes.sm,
       ),
@@ -98,7 +98,7 @@ class GradientProgressBar extends StatelessWidget {
     return Container(
       height: height,
       decoration: BoxDecoration(
-        color: backgroundColor ?? AppColors.surfaceLighter,
+        color: backgroundColor ?? Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(height / 2),
       ),
       child: FractionallySizedBox(
@@ -114,3 +114,4 @@ class GradientProgressBar extends StatelessWidget {
     );
   }
 }
+

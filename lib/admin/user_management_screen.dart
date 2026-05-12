@@ -15,7 +15,7 @@ class UserManagementScreen extends ConsumerWidget {
     return Scaffold(
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(AppSizes.lg),
+          padding: EdgeInsets.all(AppSizes.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -26,15 +26,15 @@ class UserManagementScreen extends ConsumerWidget {
               Expanded(
                 child: ListView.separated(
                   itemCount: admin.users.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: AppSizes.sm),
+                  separatorBuilder: (_, _) => const SizedBox(height: AppSizes.sm),
                   itemBuilder: (context, index) {
                     final user = admin.users[index];
                     return GestureDetector(
                       onTap: () => _showUserDetail(context, user, controller),
                       child: Container(
-                        padding: const EdgeInsets.all(AppSizes.md),
+                        padding: EdgeInsets.all(AppSizes.md),
                         decoration: BoxDecoration(
-                          color: AppColors.surface,
+                          color: Theme.of(context).cardColor,
                           borderRadius: BorderRadius.circular(AppSizes.cardRadius),
                           border: Border.all(color: user.isActive ? AppColors.neonCyan.withValues(alpha: 0.1) : AppColors.error.withValues(alpha: 0.15)),
                         ),
@@ -43,10 +43,10 @@ class UserManagementScreen extends ConsumerWidget {
                             Container(
                               width: 40, height: 40,
                               decoration: BoxDecoration(
-                                color: user.isActive ? AppColors.neonCyan.withValues(alpha: 0.15) : AppColors.surfaceLighter,
+                                color: user.isActive ? AppColors.neonCyan.withValues(alpha: 0.15) : Theme.of(context).colorScheme.surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: Center(child: Text(user.name.substring(0, 1), style: TextStyle(color: user.isActive ? AppColors.neonCyan : AppColors.textMuted, fontWeight: FontWeight.w800, fontSize: 16))),
+                              child: Center(child: Text(user.name.substring(0, 1), style: TextStyle(color: user.isActive ? AppColors.neonCyan : Theme.of(context).textTheme.bodySmall!.color!, fontWeight: FontWeight.w800, fontSize: 16))),
                             ),
                             const SizedBox(width: AppSizes.md),
                             Expanded(
@@ -58,7 +58,7 @@ class UserManagementScreen extends ConsumerWidget {
                                       Flexible(child: Text(user.name, style: Theme.of(context).textTheme.titleSmall, overflow: TextOverflow.ellipsis)),
                                       const SizedBox(width: AppSizes.xs),
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                                         decoration: BoxDecoration(
                                           color: user.isActive ? AppColors.neonGreen.withValues(alpha: 0.15) : AppColors.error.withValues(alpha: 0.15),
                                           borderRadius: BorderRadius.circular(4),
@@ -82,7 +82,13 @@ class UserManagementScreen extends ConsumerWidget {
                                 _ActionBtn(
                                   icon: user.isActive ? Icons.block : Icons.check_circle_outline,
                                   color: user.isActive ? AppColors.error : AppColors.neonGreen,
-                                  onTap: () => controller.toggleUserActive(user.id),
+                                  onTap: () {
+                                    if (user.isActive) {
+                                      _showDeactivateDialog(context, user, controller);
+                                    } else {
+                                      controller.toggleUserActive(user.id, '');
+                                    }
+                                  },
                                 ),
                               ],
                             ),
@@ -103,24 +109,24 @@ class UserManagementScreen extends ConsumerWidget {
   void _showUserDetail(BuildContext context, UserModel user, AdminController controller) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.surface,
+      backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(AppSizes.xl),
+        padding: EdgeInsets.all(AppSizes.xl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(width: 40, height: 4, decoration: BoxDecoration(color: AppColors.surfaceLighter, borderRadius: BorderRadius.circular(2))),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(2))),
             const SizedBox(height: AppSizes.xl),
             // Avatar
             Container(
               width: 64, height: 64,
               decoration: BoxDecoration(
                 gradient: user.isActive ? AppColors.primaryGradient : null,
-                color: user.isActive ? null : AppColors.surfaceLighter,
+                color: user.isActive ? null : Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: Center(child: Text(user.name.substring(0, 1), style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 28))),
+              child: Center(child: Text(user.name.substring(0, 1), style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 28))),
             ),
             const SizedBox(height: AppSizes.md),
             Text(user.name, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
@@ -139,7 +145,7 @@ class UserManagementScreen extends ConsumerWidget {
             const SizedBox(height: AppSizes.lg),
             // Level badge
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: AppSizes.lg, vertical: AppSizes.sm),
+              padding: EdgeInsets.symmetric(horizontal: AppSizes.lg, vertical: AppSizes.sm),
               decoration: BoxDecoration(
                 color: _levelColor(user.levelName).withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(AppSizes.sm),
@@ -162,7 +168,14 @@ class UserManagementScreen extends ConsumerWidget {
                 const SizedBox(width: AppSizes.sm),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: () { controller.toggleUserActive(user.id); Navigator.pop(ctx); },
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      if (user.isActive) {
+                        _showDeactivateDialog(context, user, controller);
+                      } else {
+                        controller.toggleUserActive(user.id, '');
+                      }
+                    },
                     icon: Icon(user.isActive ? Icons.block : Icons.check_circle, size: 16),
                     label: Text(user.isActive ? 'Deactivate' : 'Activate'),
                     style: ElevatedButton.styleFrom(backgroundColor: user.isActive ? AppColors.error : AppColors.neonGreen),
@@ -183,6 +196,53 @@ class UserManagementScreen extends ConsumerWidget {
       case 'Silver': return const Color(0xFFC0C0C0);
       default: return const Color(0xFFCD7F32);
     }
+  }
+
+  void _showDeactivateDialog(BuildContext context, UserModel user, AdminController controller) {
+    final reasonCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(context).cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(children: [
+          Icon(Icons.block_rounded, color: AppColors.error, size: 20),
+          SizedBox(width: 8),
+          Text('Deactivate Account', style: TextStyle(color: Colors.white, fontSize: 16)),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Deactivating ${user.name}\'s account.', style: TextStyle(color: Theme.of(context).textTheme.bodyMedium!.color!, fontSize: 13)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonCtrl,
+              maxLines: 3,
+              style: TextStyle(color: Colors.white, fontSize: 13),
+              decoration: const InputDecoration(
+                labelText: 'Reason (required)',
+                hintText: 'Enter the reason for deactivation...',
+                hintStyle: TextStyle(fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: Theme.of(context).textTheme.bodySmall!.color!))),
+          ElevatedButton(
+            onPressed: () {
+              final reason = reasonCtrl.text.trim();
+              if (reason.isEmpty) return;
+              Navigator.pop(ctx);
+              controller.toggleUserActive(user.id, reason);
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+            child: const Text('Confirm Deactivate'),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -222,3 +282,5 @@ class _ActionBtn extends StatelessWidget {
     );
   }
 }
+
+

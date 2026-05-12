@@ -1,10 +1,63 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
+import 'api_config.dart';
+import 'mongodb_service.dart';
 
-// In-app notification service (no external dependencies needed)
-// In production, replace with firebase_messaging for push notifications
+// ─── Model: Admin Notification from DB ───
+class AdminNotification {
+  final String id;
+  final String title;
+  final String body;
+  final String priority;
+  final bool isRead;
+  final DateTime createdAt;
 
+  const AdminNotification({
+    required this.id,
+    required this.title,
+    required this.body,
+    required this.priority,
+    required this.isRead,
+    required this.createdAt,
+  });
+
+  factory AdminNotification.fromJson(Map<String, dynamic> json) {
+    return AdminNotification(
+      id: json['_id'] ?? '',
+      title: json['title'] ?? '',
+      body: json['body'] ?? '',
+      priority: json['priority'] ?? 'Normal',
+      isRead: json['isRead'] ?? false,
+      createdAt: DateTime.tryParse(json['createdAt'] ?? '') ?? DateTime.now(),
+    );
+  }
+
+  Color get priorityColor {
+    switch (priority) {
+      case 'Critical': return const Color(0xFFFF006E);
+      case 'Important': return const Color(0xFFFF9100);
+      default: return const Color(0xFF00E5FF);
+    }
+  }
+
+  IconData get priorityIcon {
+    switch (priority) {
+      case 'Critical': return Icons.warning_amber_rounded;
+      case 'Important': return Icons.info_rounded;
+      default: return Icons.notifications_rounded;
+    }
+  }
+
+  AdminNotification copyWith({bool? isRead}) => AdminNotification(
+    id: id, title: title, body: body, priority: priority,
+    isRead: isRead ?? this.isRead, createdAt: createdAt,
+  );
+}
+
+// ─── In-App Notification (local events like badge, workout) ───
 class AppNotification {
   final String title;
   final String body;
@@ -27,16 +80,24 @@ class AppNotification {
   }
 }
 
+// ─── Combined Notification State ───
 class NotificationState {
   final List<AppNotification> notifications;
+  final List<AdminNotification> adminNotifications;
   final int unreadCount;
+  final bool isLoadingAdmin;
 
   const NotificationState({
     this.notifications = const [],
+    this.adminNotifications = const [],
     this.unreadCount = 0,
+    this.isLoadingAdmin = false,
   });
+
+  int get totalUnread => notifications.where((n) => !n.isRead).length + adminNotifications.where((n) => !n.isRead).length;
 }
 
+// ─── Controller ───
 class NotificationController extends StateNotifier<NotificationState> {
   NotificationController() : super(const NotificationState()) {
     _initNotifications();
@@ -46,7 +107,6 @@ class NotificationController extends StateNotifier<NotificationState> {
   Timer? _reminderTimer;
 
   void _initNotifications() {
-    // Welcome notification
     _addNotification(AppNotification(
       title: 'Welcome to FitTracker! 🎉',
       body: 'Start tracking your workouts and earn points.',
@@ -57,7 +117,6 @@ class NotificationController extends StateNotifier<NotificationState> {
   }
 
   void _startReminders() {
-    // Send workout reminder every 2 minutes (in production, use daily)
     _reminderTimer = Timer.periodic(const Duration(minutes: 2), (_) {
       final hour = DateTime.now().hour;
       if (hour >= 6 && hour <= 22) {
@@ -76,11 +135,11 @@ class NotificationController extends StateNotifier<NotificationState> {
     final updated = [notification, ...state.notifications];
     state = NotificationState(
       notifications: updated,
+      adminNotifications: state.adminNotifications,
       unreadCount: updated.where((n) => !n.isRead).length,
     );
   }
 
-  /// Call this when user completes a workout
   void workoutCompleted(String type, int points) {
     _addNotification(AppNotification(
       title: 'Workout Complete! 💪',
@@ -91,7 +150,6 @@ class NotificationController extends StateNotifier<NotificationState> {
     ));
   }
 
-  /// Call this when user reaches a streak milestone
   void streakMilestone(int streak) {
     _addNotification(AppNotification(
       title: '$streak Day Streak! 🔥',
@@ -102,7 +160,6 @@ class NotificationController extends StateNotifier<NotificationState> {
     ));
   }
 
-  /// Call this when user levels up
   void levelUp(String levelName) {
     _addNotification(AppNotification(
       title: 'Level Up! ⭐',
@@ -113,9 +170,72 @@ class NotificationController extends StateNotifier<NotificationState> {
     ));
   }
 
+  // ─── Admin Notifications (from DB) ───
+  Future<void> fetchAdminNotifications() async {
+    state = NotificationState(
+      notifications: state.notifications,
+      adminNotifications: state.adminNotifications,
+      unreadCount: state.unreadCount,
+      isLoadingAdmin: true,
+    );
+    try {
+      final token = MongoDbService.token;
+      if (token == null) return;
+      final response = await http.get(
+        Uri.parse('${ApiConfig.backendUrl}/broadcast/my-notifications'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = (data['notifications'] as List)
+            .map((n) => AdminNotification.fromJson(n))
+            .toList();
+        state = NotificationState(
+          notifications: state.notifications,
+          adminNotifications: list,
+          isLoadingAdmin: false,
+        );
+      }
+    } catch (e) {
+      debugPrint('[Notifications] Failed to fetch admin notifications: $e');
+      state = NotificationState(
+        notifications: state.notifications,
+        adminNotifications: state.adminNotifications,
+        isLoadingAdmin: false,
+      );
+    }
+  }
+
+  Future<void> markAdminNotificationRead(String id) async {
+    final updated = state.adminNotifications.map((n) => n.id == id ? n.copyWith(isRead: true) : n).toList();
+    state = NotificationState(notifications: state.notifications, adminNotifications: updated);
+    try {
+      final token = MongoDbService.token;
+      if (token == null) return;
+      await http.patch(
+        Uri.parse('${ApiConfig.backendUrl}/broadcast/my-notifications/$id/read'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+    } catch (_) {}
+  }
+
+  Future<void> markAllAdminRead() async {
+    final updated = state.adminNotifications.map((n) => n.copyWith(isRead: true)).toList();
+    state = NotificationState(notifications: state.notifications, adminNotifications: updated);
+    try {
+      final token = MongoDbService.token;
+      if (token == null) return;
+      await http.patch(
+        Uri.parse('${ApiConfig.backendUrl}/broadcast/my-notifications/read-all'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+    } catch (_) {}
+  }
+
   void markAllRead() {
     final updated = state.notifications.map((n) => n.copyWith(isRead: true)).toList();
-    state = NotificationState(notifications: updated, unreadCount: 0);
+    state = NotificationState(notifications: updated, adminNotifications: state.adminNotifications, unreadCount: 0);
   }
 
   void clearAll() {

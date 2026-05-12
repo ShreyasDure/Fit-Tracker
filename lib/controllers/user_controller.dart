@@ -152,6 +152,23 @@ class WorkoutController extends StateNotifier<WorkoutState> {
     });
   }
 
+  void reset() {
+    _timer?.cancel();
+    _timer = null;
+    state = state.copyWith(
+      isActive: false,
+      elapsedSeconds: 0,
+      distance: 0.0,
+      pace: 0.0,
+      cadence: 0,
+      heartRate: 0,
+      calories: 0,
+      reps: 0,
+      sets: 0,
+      weight: 0.0,
+    );
+  }
+
   void _stopWorkout() {
     _timer?.cancel();
     _timer = null;

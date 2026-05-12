@@ -17,7 +17,7 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String,
     required: true,
-    minlength: 6,
+    minlength: 8,
   },
   role: {
     type: String,
@@ -40,6 +40,27 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  healthData: {
+    steps: { type: Number, default: 0 },
+    calories: { type: Number, default: 0 },
+    activeMinutes: { type: Number, default: 0 },
+    heartRate: { type: Number, default: 0 },
+    lastSynced: { type: Date, default: Date.now },
+  },
+  badges: [{
+    badgeName: String,
+    achieved: { type: Boolean, default: true },
+    achievedAt: { type: Date, default: Date.now }
+  }],
+  // OTP for password reset
+  resetOtp: { type: String, default: null },
+  resetOtpExpiry: { type: Date, default: null },
+  // Notification preferences
+  pushNotifications: { type: Boolean, default: true },
+  emailReminders: { type: Boolean, default: true },
+  // Deactivation info
+  deactivationReason: { type: String, default: null },
+  deactivatedAt: { type: Date, default: null },
 }, {
   timestamps: true,
 });
@@ -56,10 +77,12 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-// Return user without password
+// Return user without sensitive fields
 userSchema.methods.toJSON = function() {
   const obj = this.toObject();
   delete obj.password;
+  delete obj.resetOtp;
+  delete obj.resetOtpExpiry;
   obj.id = obj._id;
   return obj;
 };

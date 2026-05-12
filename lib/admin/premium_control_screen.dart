@@ -17,7 +17,7 @@ class PremiumControlScreen extends ConsumerWidget {
         leading: IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => Navigator.pop(context)),
       ),
       body: Padding(
-        padding: const EdgeInsets.all(AppSizes.lg),
+        padding: EdgeInsets.all(AppSizes.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -28,13 +28,13 @@ class PremiumControlScreen extends ConsumerWidget {
               final colors = [AppColors.neonCyan, AppColors.neonPurple, AppColors.neonOrange];
               final color = colors[i % colors.length];
               return Padding(
-                padding: const EdgeInsets.only(bottom: AppSizes.md),
+                padding: EdgeInsets.only(bottom: AppSizes.md),
                 child: Container(
-                  padding: const EdgeInsets.all(AppSizes.lg),
+                  padding: EdgeInsets.all(AppSizes.lg),
                   decoration: BoxDecoration(
-                    color: AppColors.surface,
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                    border: Border.all(color: plan.isEnabled ? color.withValues(alpha: 0.2) : AppColors.surfaceLighter),
+                    border: Border.all(color: plan.isEnabled ? color.withValues(alpha: 0.2) : Theme.of(context).colorScheme.surfaceContainerHighest),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -42,7 +42,7 @@ class PremiumControlScreen extends ConsumerWidget {
                       Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(AppSizes.sm),
+                            padding: EdgeInsets.all(AppSizes.sm),
                             decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
                             child: Icon(Icons.workspace_premium_rounded, color: color, size: 20),
                           ),
@@ -70,3 +70,4 @@ class PremiumControlScreen extends ConsumerWidget {
     );
   }
 }
+

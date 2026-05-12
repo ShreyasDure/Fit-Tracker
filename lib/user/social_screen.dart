@@ -1,38 +1,133 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/constants.dart';
+import '../services/mongodb_service.dart';
+import '../controllers/auth_controller.dart';
 
-// Demo social feed data
+// Real social feed data model
 class SocialPost {
+  final String id;
   final String userName;
   final String workoutType;
-  final String duration;
-  final String distance;
+  final int duration;
+  final double distance;
   final int points;
-  final int likes;
-  final String timeAgo;
+  int likes;
   bool isLiked;
+  final DateTime createdAt;
 
-  SocialPost({required this.userName, required this.workoutType, required this.duration, this.distance = '', required this.points, this.likes = 0, required this.timeAgo, this.isLiked = false});
+  SocialPost({
+    required this.id,
+    required this.userName,
+    required this.workoutType,
+    required this.duration,
+    this.distance = 0,
+    required this.points,
+    this.likes = 0,
+    this.isLiked = false,
+    required this.createdAt,
+  });
+
+  factory SocialPost.fromJson(Map<String, dynamic> json, String currentUserId) {
+    final likedBy = (json['likedBy'] as List?)?.map((e) => e.toString()).toList() ?? [];
+    return SocialPost(
+      id: json['id'] ?? '',
+      userName: json['name'] ?? 'User',
+      workoutType: json['activityType'] ?? 'Workout',
+      duration: (json['duration'] as num?)?.toInt() ?? 0,
+      distance: (json['distance'] as num?)?.toDouble() ?? 0.0,
+      points: (json['points'] as num?)?.toInt() ?? 0,
+      likes: (json['likes'] as num?)?.toInt() ?? 0,
+      isLiked: likedBy.contains(currentUserId),
+      createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : DateTime.now(),
+    );
+  }
+
+  String get timeAgo {
+    final diff = DateTime.now().difference(createdAt);
+    if (diff.inDays > 0) return '${diff.inDays}d ago';
+    if (diff.inHours > 0) return '${diff.inHours}h ago';
+    if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
+    return 'Just now';
+  }
+
+  String get formattedDuration {
+    if (duration >= 3600) {
+      final h = duration ~/ 3600;
+      final m = (duration % 3600) ~/ 60;
+      return m > 0 ? '${h}h ${m}m' : '${h}h';
+    }
+    return '${duration ~/ 60} min';
+  }
 }
 
-final socialFeedProvider = StateNotifierProvider<SocialFeedNotifier, List<SocialPost>>((ref) => SocialFeedNotifier());
+final socialFeedProvider = StateNotifierProvider<SocialFeedNotifier, AsyncValue<List<SocialPost>>>((ref) {
+  final user = ref.watch(authControllerProvider).user;
+  return SocialFeedNotifier(user?.id ?? '');
+});
 
-class SocialFeedNotifier extends StateNotifier<List<SocialPost>> {
-  SocialFeedNotifier() : super([
-    SocialPost(userName: 'Alex Runner', workoutType: 'Run', duration: '32 min', distance: '5.2 km', points: 150, likes: 12, timeAgo: '15m ago'),
-    SocialPost(userName: 'Maya Fitness', workoutType: 'Gym', duration: '45 min', points: 200, likes: 8, timeAgo: '1h ago'),
-    SocialPost(userName: 'Jake Strong', workoutType: 'Bike', duration: '1h 10m', distance: '22 km', points: 300, likes: 15, timeAgo: '2h ago'),
-    SocialPost(userName: 'Sarah Walk', workoutType: 'Walk', duration: '25 min', distance: '2.1 km', points: 80, likes: 5, timeAgo: '3h ago'),
-    SocialPost(userName: 'Chris Power', workoutType: 'Gym', duration: '55 min', points: 250, likes: 20, timeAgo: '4h ago'),
-    SocialPost(userName: 'Emma Cycle', workoutType: 'Bike', duration: '40 min', distance: '15 km', points: 220, likes: 9, timeAgo: '5h ago'),
-  ]);
+class SocialFeedNotifier extends StateNotifier<AsyncValue<List<SocialPost>>> {
+  final String currentUserId;
 
-  void toggleLike(int index) {
-    final post = state[index];
-    post.isLiked = !post.isLiked;
-    post.isLiked ? post.likes + 1 : post.likes - 1;
-    state = [...state];
+  SocialFeedNotifier(this.currentUserId) : super(const AsyncValue.loading()) {
+    loadFeed();
+  }
+
+  Future<void> loadFeed() async {
+    try {
+      state = const AsyncValue.loading();
+      final data = await MongoDbService.getSocialFeed();
+      final posts = data.map((json) => SocialPost.fromJson(json, currentUserId)).toList();
+      state = AsyncValue.data(posts);
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+    }
+  }
+
+  Future<void> toggleLike(String postId) async {
+    if (state.value == null) return;
+    
+    // Optimistic UI update
+    final oldState = state.value!;
+    final index = oldState.indexWhere((p) => p.id == postId);
+    if (index == -1) return;
+
+    final post = oldState[index];
+    final wasLiked = post.isLiked;
+    
+    final updatedPost = SocialPost(
+      id: post.id, userName: post.userName, workoutType: post.workoutType,
+      duration: post.duration, distance: post.distance, points: post.points,
+      createdAt: post.createdAt,
+      isLiked: !wasLiked,
+      likes: wasLiked ? post.likes - 1 : post.likes + 1,
+    );
+
+    final newState = List<SocialPost>.from(oldState);
+    newState[index] = updatedPost;
+    state = AsyncValue.data(newState);
+
+    // Network request
+    try {
+      final res = await MongoDbService.toggleSocialLike(postId);
+      // Confirm with server response
+      final confirmedState = List<SocialPost>.from(state.value!);
+      final confirmedIndex = confirmedState.indexWhere((p) => p.id == postId);
+      if (confirmedIndex != -1) {
+        final currentPost = confirmedState[confirmedIndex];
+        confirmedState[confirmedIndex] = SocialPost(
+          id: currentPost.id, userName: currentPost.userName, workoutType: currentPost.workoutType,
+          duration: currentPost.duration, distance: currentPost.distance, points: currentPost.points,
+          createdAt: currentPost.createdAt,
+          isLiked: res['liked'],
+          likes: res['likes'],
+        );
+        state = AsyncValue.data(confirmedState);
+      }
+    } catch (e) {
+      // Revert on failure
+      state = AsyncValue.data(oldState);
+    }
   }
 }
 
@@ -41,136 +136,166 @@ class SocialScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final feed = ref.watch(socialFeedProvider);
+    final feedState = ref.watch(socialFeedProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Social'),
         leading: IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => Navigator.pop(context)),
       ),
-      body: Column(
-        children: [
-          // Friends count banner
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(AppSizes.md),
-            margin: const EdgeInsets.fromLTRB(AppSizes.lg, AppSizes.sm, AppSizes.lg, 0),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [AppColors.neonPurple.withValues(alpha: 0.12), AppColors.neonCyan.withValues(alpha: 0.06)]),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.people_rounded, color: AppColors.neonPurple, size: 20),
-                const SizedBox(width: AppSizes.sm),
-                Text('Activity Feed', style: Theme.of(context).textTheme.titleSmall),
-                const Spacer(),
-                Text('${feed.length} activities', style: const TextStyle(color: AppColors.textMuted, fontSize: 11)),
-              ],
-            ),
+      body: feedState.when(
+        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.neonCyan)),
+        error: (err, _) => Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, color: AppColors.error, size: 48),
+              const SizedBox(height: 16),
+              Text('Failed to load feed', style: Theme.of(context).textTheme.titleMedium),
+              TextButton(
+                onPressed: () => ref.read(socialFeedProvider.notifier).loadFeed(),
+                child: const Text('Retry', style: TextStyle(color: AppColors.neonCyan)),
+              ),
+            ],
           ),
-          const SizedBox(height: AppSizes.sm),
-          // Feed
-          Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.all(AppSizes.lg),
-              itemCount: feed.length,
-              separatorBuilder: (_, __) => const SizedBox(height: AppSizes.sm),
-              itemBuilder: (_, i) {
-                final post = feed[i];
-                final typeIcon = {
-                  'Run': Icons.directions_run_rounded,
-                  'Walk': Icons.directions_walk_rounded,
-                  'Bike': Icons.directions_bike_rounded,
-                  'Gym': Icons.fitness_center_rounded,
-                }[post.workoutType] ?? Icons.fitness_center_rounded;
-                final typeColor = {
-                  'Run': AppColors.neonCyan,
-                  'Walk': AppColors.neonGreen,
-                  'Bike': AppColors.neonPurple,
-                  'Gym': AppColors.neonOrange,
-                }[post.workoutType] ?? AppColors.neonCyan;
+        ),
+        data: (feed) => RefreshIndicator(
+          onRefresh: () => ref.read(socialFeedProvider.notifier).loadFeed(),
+          color: AppColors.neonCyan,
+          backgroundColor: Theme.of(context).cardColor,
+          child: Column(
+            children: [
+              // Friends count banner
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(AppSizes.md),
+                margin: EdgeInsets.fromLTRB(AppSizes.lg, AppSizes.sm, AppSizes.lg, 0),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [AppColors.neonPurple.withValues(alpha: 0.12), AppColors.neonCyan.withValues(alpha: 0.06)]),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.people_rounded, color: AppColors.neonPurple, size: 20),
+                    const SizedBox(width: AppSizes.sm),
+                    Text('Activity Feed', style: Theme.of(context).textTheme.titleSmall),
+                    const Spacer(),
+                    Text('${feed.length} activities', style: TextStyle(color: Theme.of(context).textTheme.bodySmall!.color!, fontSize: 11)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSizes.sm),
+              // Feed
+              Expanded(
+                child: feed.isEmpty
+                  ? Center(child: Text('No activities yet. Go do a workout!', style: TextStyle(color: Theme.of(context).textTheme.bodySmall!.color!)))
+                  : ListView.separated(
+                  padding: EdgeInsets.all(AppSizes.lg),
+                  itemCount: feed.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: AppSizes.sm),
+                  itemBuilder: (_, i) {
+                    final post = feed[i];
+                    final String typeStr = post.workoutType.toLowerCase();
+                    final typeIcon = typeStr.contains('run') ? Icons.directions_run_rounded 
+                                   : typeStr.contains('walk') ? Icons.directions_walk_rounded 
+                                   : typeStr.contains('bike') ? Icons.directions_bike_rounded 
+                                   : Icons.fitness_center_rounded;
+                                   
+                    final typeColor = typeStr.contains('run') ? AppColors.neonCyan 
+                                    : typeStr.contains('walk') ? AppColors.neonGreen 
+                                    : typeStr.contains('bike') ? AppColors.neonPurple 
+                                    : AppColors.neonOrange;
 
-                return Container(
-                  padding: const EdgeInsets.all(AppSizes.md),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // User header
-                      Row(
+                    return Container(
+                      padding: EdgeInsets.all(AppSizes.md),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+                        border: Border.all(color: typeColor.withValues(alpha: 0.15)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.25),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // User header
+                          Row(
+                            children: [
+                              Container(
+                                width: 36, height: 36,
+                                decoration: BoxDecoration(
+                                  color: typeColor.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Center(child: Text(post.userName.isNotEmpty ? post.userName[0].toUpperCase() : 'U', style: TextStyle(color: typeColor, fontWeight: FontWeight.w800))),
+                              ),
+                              const SizedBox(width: AppSizes.sm),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(post.userName, style: Theme.of(context).textTheme.titleSmall),
+                                    Text(post.timeAgo, style: TextStyle(color: Theme.of(context).textTheme.bodySmall!.color!, fontSize: 10)),
+                                  ],
+                                ),
+                              ),
+                              Icon(typeIcon, color: typeColor, size: 18),
+                            ],
+                          ),
+                          const SizedBox(height: AppSizes.sm),
+                          // Workout details
                           Container(
-                            width: 36, height: 36,
+                            padding: EdgeInsets.all(AppSizes.sm),
                             decoration: BoxDecoration(
-                              color: typeColor.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(10),
+                              color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            child: Center(child: Text(post.userName[0], style: TextStyle(color: typeColor, fontWeight: FontWeight.w800))),
-                          ),
-                          const SizedBox(width: AppSizes.sm),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(post.userName, style: Theme.of(context).textTheme.titleSmall),
-                                Text(post.timeAgo, style: const TextStyle(color: AppColors.textMuted, fontSize: 10)),
-                              ],
-                            ),
-                          ),
-                          Icon(typeIcon, color: typeColor, size: 18),
-                        ],
-                      ),
-                      const SizedBox(height: AppSizes.sm),
-                      // Workout details
-                      Container(
-                        padding: const EdgeInsets.all(AppSizes.sm),
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceLight,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _FeedStat(label: 'Type', value: post.workoutType, color: typeColor),
-                            _FeedStat(label: 'Duration', value: post.duration, color: AppColors.neonCyan),
-                            if (post.distance.isNotEmpty) _FeedStat(label: 'Distance', value: post.distance, color: AppColors.neonGreen),
-                            _FeedStat(label: 'Points', value: '+${post.points}', color: AppColors.neonOrange),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: AppSizes.sm),
-                      // Actions
-                      Row(
-                        children: [
-                          GestureDetector(
-                            onTap: () => ref.read(socialFeedProvider.notifier).toggleLike(i),
                             child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
                               children: [
-                                Icon(post.isLiked ? Icons.favorite : Icons.favorite_border, color: post.isLiked ? AppColors.neonPink : AppColors.textMuted, size: 18),
-                                const SizedBox(width: 4),
-                                Text('${post.likes}', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                                _FeedStat(label: 'Type', value: post.workoutType, color: typeColor),
+                                _FeedStat(label: 'Duration', value: post.formattedDuration, color: AppColors.neonCyan),
+                                if (post.distance > 0) _FeedStat(label: 'Distance', value: '${post.distance} km', color: AppColors.neonGreen),
+                                _FeedStat(label: 'Points', value: '+${post.points}', color: AppColors.neonOrange),
                               ],
                             ),
                           ),
-                          const SizedBox(width: AppSizes.lg),
-                          const Icon(Icons.chat_bubble_outline, color: AppColors.textMuted, size: 16),
-                          const SizedBox(width: 4),
-                          const Text('Comment', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                          const Spacer(),
-                          const Icon(Icons.share_outlined, color: AppColors.textMuted, size: 16),
+                          const SizedBox(height: AppSizes.sm),
+                          // Actions
+                          Row(
+                            children: [
+                              GestureDetector(
+                                onTap: () => ref.read(socialFeedProvider.notifier).toggleLike(post.id),
+                                child: Row(
+                                  children: [
+                                    Icon(post.isLiked ? Icons.favorite : Icons.favorite_border, color: post.isLiked ? AppColors.neonPink : Theme.of(context).textTheme.bodySmall!.color!, size: 18),
+                                    const SizedBox(width: 4),
+                                    Text('${post.likes}', style: TextStyle(color: Theme.of(context).textTheme.bodySmall!.color!, fontSize: 12)),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: AppSizes.lg),
+                              Icon(Icons.chat_bubble_outline, color: Theme.of(context).textTheme.bodySmall!.color!, size: 16),
+                              const SizedBox(width: 4),
+                              Text('Comment', style: TextStyle(color: Theme.of(context).textTheme.bodySmall!.color!, fontSize: 12)),
+                              const Spacer(),
+                              Icon(Icons.share_outlined, color: Theme.of(context).textTheme.bodySmall!.color!, size: 16),
+                            ],
+                          ),
                         ],
                       ),
-                    ],
-                  ),
-                );
-              },
-            ),
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -184,7 +309,7 @@ class _FeedStat extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(children: [
       Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 13)),
-      Text(label, style: const TextStyle(color: AppColors.textMuted, fontSize: 9)),
+      Text(label, style: TextStyle(color: Theme.of(context).textTheme.bodySmall!.color!, fontSize: 9)),
     ]);
   }
 }

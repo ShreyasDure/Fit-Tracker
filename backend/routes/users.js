@@ -35,15 +35,48 @@ router.put('/:id/points', auth, adminOnly, async (req, res) => {
   }
 });
 
-// PUT /api/users/:id/toggle — Toggle active status
+// PUT /api/users/:id/toggle — Toggle active status with optional reason
 router.put('/:id/toggle', auth, adminOnly, async (req, res) => {
   try {
+    const { reason } = req.body || {};
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    const wasActive = user.isActive;
     user.isActive = !user.isActive;
+
+    // If deactivating, store reason
+    if (wasActive && !user.isActive && reason) {
+      user.deactivationReason = reason;
+      user.deactivatedAt = new Date();
+    } else if (!wasActive && user.isActive) {
+      // Clear reason on reactivation
+      user.deactivationReason = undefined;
+      user.deactivatedAt = undefined;
+    }
+
     await user.save();
-    res.json({ user: user.toJSON() });
+
+    // Send email notification based on action
+    if (wasActive && !user.isActive) {
+      try {
+        const { sendDeactivationEmail } = require('../services/emailService');
+        await sendDeactivationEmail(user.email, user.name, reason || 'No specific reason provided');
+        console.log(`📧 Deactivation email sent to ${user.email}`);
+      } catch (emailErr) {
+        console.warn('Deactivation email failed:', emailErr.message);
+      }
+    } else if (!wasActive && user.isActive) {
+      try {
+        const { sendReactivationEmail } = require('../services/emailService');
+        await sendReactivationEmail(user.email, user.name);
+        console.log(`📧 Reactivation email sent to ${user.email}`);
+      } catch (emailErr) {
+        console.warn('Reactivation email failed:', emailErr.message);
+      }
+    }
+
+    res.json({ user: user.toJSON(), message: user.isActive ? 'Account activated' : 'Account deactivated' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

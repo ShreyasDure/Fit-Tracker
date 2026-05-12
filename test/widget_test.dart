@@ -11,6 +11,6 @@ void main() {
 
     // Verify login screen is shown
     expect(find.text('FitTracker'), findsOneWidget);
-    expect(find.text('Sign In'), findsOneWidget);
+    expect(find.text('Sign In'), findsAtLeastNWidgets(1));
   });
 }

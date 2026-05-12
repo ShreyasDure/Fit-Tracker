@@ -6,9 +6,10 @@ class StatCard extends StatelessWidget {
   final String value;
   final IconData icon;
   final Color? iconColor;
-  final Gradient? gradient;
+  final Gradient? gradient; // optional, but we no longer use it as the default fill
   final String? subtitle;
   final VoidCallback? onTap;
+  final Widget? trailing;
 
   const StatCard({
     super.key,
@@ -19,26 +20,30 @@ class StatCard extends StatelessWidget {
     this.gradient,
     this.subtitle,
     this.onTap,
+    this.trailing,
   });
 
   @override
   Widget build(BuildContext context) {
+    final accent = iconColor ?? AppColors.neonCyan;
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(AppSizes.md),
+        padding: EdgeInsets.all(AppSizes.md),
         decoration: BoxDecoration(
-          gradient: gradient ?? AppColors.cardGradient,
+          // Premium dark-glass surface
+          color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.06),
           borderRadius: BorderRadius.circular(AppSizes.cardRadius),
           border: Border.all(
-            color: (iconColor ?? AppColors.neonCyan).withValues(alpha: 0.15),
+            color: accent.withValues(alpha: 0.10),
             width: 1,
           ),
           boxShadow: [
             BoxShadow(
-              color: (iconColor ?? AppColors.neonCyan).withValues(alpha: 0.05),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
+              color: accent.withValues(alpha: 0.05),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
             ),
           ],
         ),
@@ -50,39 +55,57 @@ class StatCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(6),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: (iconColor ?? AppColors.neonCyan).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
+                    color: accent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: accent.withValues(alpha: 0.3)),
                   ),
                   child: Icon(
                     icon,
-                    size: 14,
-                    color: iconColor ?? AppColors.neonCyan,
+                    size: 16,
+                    color: accent,
                   ),
                 ),
-                if (subtitle != null)
-                  Text(
-                    subtitle!,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: AppColors.neonGreen,
+                const SizedBox(width: AppSizes.xs),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: trailing ??
+                        Text(
+                          subtitle ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: accent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                   ),
+                ),
               ],
             ),
-            const SizedBox(height: AppSizes.sm),
+            const SizedBox(height: 18),
             Text(
               value,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                color: Colors.white,
+                letterSpacing: -0.5,
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 2),
+            const SizedBox(height: 6),
             Text(
               title,
-              style: Theme.of(context).textTheme.bodySmall,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white.withValues(alpha: 0.5),
+                fontWeight: FontWeight.w500,
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -112,9 +135,9 @@ class GlowingStatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(AppSizes.md),
+      padding: EdgeInsets.all(AppSizes.md),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(AppSizes.cardRadius),
         border: Border.all(
           color: accentColor.withValues(alpha: 0.2),
