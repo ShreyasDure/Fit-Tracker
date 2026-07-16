@@ -1,7 +1,10 @@
-import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
+import 'package:share_plus/share_plus.dart';
+import 'dart:io';
 import '../core/constants.dart';
 import '../services/health_service.dart';
 import '../controllers/auth_controller.dart';
@@ -32,17 +35,61 @@ class _HealthReportScreenState extends ConsumerState<HealthReportScreen> with Si
   Future<void> _exportPdf() async {
     setState(() => _isExporting = true);
     try {
-      // Calls existing backend PDF generator
-      await MongoDbService.downloadHealthReport();
+      final bytes = await MongoDbService.downloadHealthReport();
+      // Save to device storage
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/FitTracker_Health_Report.pdf');
+      await file.writeAsBytes(bytes);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('✅ Report downloaded successfully!'), backgroundColor: AppColors.success),
+          SnackBar(
+            content: const Text('✅ Report saved! Opening...'),
+            backgroundColor: AppColors.success,
+            action: SnackBarAction(
+              label: 'Open',
+              textColor: Colors.black,
+              onPressed: () => OpenFile.open(file.path),
+            ),
+          ),
         );
+        // Auto-open the PDF
+        await OpenFile.open(file.path);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('⚠️ PDF Download sent to Background Process.'), backgroundColor: AppColors.neonPurple),
+          SnackBar(
+            content: Text('⚠️ Download failed: ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  Future<void> _sharePdf() async {
+    setState(() => _isExporting = true);
+    try {
+      final bytes = await MongoDbService.downloadHealthReport();
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/FitTracker_Health_Report.pdf');
+      await file.writeAsBytes(bytes);
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'application/pdf')],
+          subject: 'My FitTracker AI Health Report',
+          text: 'Check out my AI-generated Health Intelligence Report from FitTracker! 💪',
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⚠️ Share failed: ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: AppColors.error,
+          ),
         );
       }
     } finally {
@@ -79,7 +126,7 @@ class _HealthReportScreenState extends ConsumerState<HealthReportScreen> with Si
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text("AI Health Intelligence", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+        title: const Text("AI Health Intelligence"),
         centerTitle: true,
       ),
       body: Stack(
@@ -261,26 +308,33 @@ class _HealthReportScreenState extends ConsumerState<HealthReportScreen> with Si
           const _SectionTitle("Visual Analytics"),
           const SizedBox(height: AppSizes.md),
           _GlassContainer(
-            padding: const EdgeInsets.all(AppSizes.lg),
+            padding: const EdgeInsets.fromLTRB(AppSizes.lg, AppSizes.lg, AppSizes.lg, AppSizes.md),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text("Weekly Activity Trend", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
                 const SizedBox(height: 24),
+                // Fixed: wrap in ClipRect + give explicit height that includes label space
                 SizedBox(
-                  height: 120,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      _ChartBar(height: 60, label: "M"),
-                      _ChartBar(height: 80, label: "T"),
-                      _ChartBar(height: 40, label: "W"),
-                      _ChartBar(height: 100, label: "T", color: AppColors.neonCyan), // Peak
-                      _ChartBar(height: 70, label: "F"),
-                      _ChartBar(height: 50, label: "S"),
-                      _ChartBar(height: (health.stepsProgress * 120).clamp(20, 120), label: "S", isToday: true),
-                    ],
+                  height: 148,
+                  child: ClipRect(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        _ChartBar(height: 60, label: "M"),
+                        _ChartBar(height: 80, label: "T"),
+                        _ChartBar(height: 40, label: "W"),
+                        _ChartBar(height: 100, label: "T", color: AppColors.neonCyan),
+                        _ChartBar(height: 70, label: "F"),
+                        _ChartBar(height: 50, label: "S"),
+                        _ChartBar(
+                          height: (health.stepsProgress * 108).clamp(20, 108),
+                          label: "S",
+                          isToday: true,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -423,7 +477,9 @@ class _HealthReportScreenState extends ConsumerState<HealthReportScreen> with Si
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
-                  icon: _isExporting ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) : const Icon(Icons.picture_as_pdf_rounded),
+                  icon: _isExporting
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                      : const Icon(Icons.picture_as_pdf_rounded),
                   label: Text(_isExporting ? "Generating..." : "Download PDF", style: const TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ),
@@ -431,10 +487,10 @@ class _HealthReportScreenState extends ConsumerState<HealthReportScreen> with Si
               Container(
                 decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(16)),
                 child: IconButton(
-                  icon: const Icon(Icons.ios_share_rounded, color: Colors.white),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Share dialog opened.')));
-                  },
+                  icon: _isExporting
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.ios_share_rounded, color: Colors.white),
+                  onPressed: _isExporting ? null : _sharePdf,
                 ),
               ),
             ],

@@ -7,7 +7,7 @@ void main() {
     await tester.pumpWidget(
       const ProviderScope(child: FitTrackerApp()),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 500));
 
     // Verify login screen is shown
     expect(find.text('FitTracker'), findsOneWidget);

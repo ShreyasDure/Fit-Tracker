@@ -138,7 +138,72 @@ async function sendDeactivationEmail(to, name, reason) {
   });
 }
 
-module.exports = { sendOtpEmail, sendWelcomeEmail, sendSupportReply, sendDeactivationEmail, sendInspectionEmail, sendResolvedEmail, sendReactivationEmail };
+// ─── Workout Reminder Email ───
+async function sendWorkoutReminderEmail(to, name, time) {
+  const quotes = [
+    "The only bad workout is the one that didn't happen.",
+    "Push yourself, because no one else is going to do it for you.",
+    "Your body can stand almost anything. It's your mind you have to convince.",
+    "Sweat is just fat crying. Keep going!",
+    "Success starts with self-discipline.",
+  ];
+  const quote = quotes[Math.floor(Math.random() * quotes.length)];
+
+  const html = `
+    <div style="font-family: 'Inter', Arial, sans-serif; max-width: 520px; margin: 0 auto; background: #0D0D1A; border-radius: 20px; overflow: hidden; box-shadow: 0 0 40px rgba(0,229,255,0.15);">
+      <!-- Header -->
+      <div style="background: linear-gradient(135deg, #00E5FF 0%, #00B4D8 40%, #39FF14 100%); padding: 36px 32px; text-align: center; position: relative;">
+        <div style="font-size: 48px; margin-bottom: 8px;">🏋️</div>
+        <h1 style="color: #000; margin: 0; font-size: 26px; font-weight: 900; letter-spacing: -0.5px;">Time to Work Out!</h1>
+        <p style="color: rgba(0,0,0,0.65); margin: 8px 0 0; font-size: 14px; font-weight: 600;">Your scheduled session is right now</p>
+      </div>
+
+      <!-- Body -->
+      <div style="padding: 36px 32px; color: #fff;">
+        <h2 style="color: #00E5FF; margin: 0 0 12px; font-size: 20px;">Hey ${name || 'Champ'}! 💪</h2>
+        <p style="color: #B0B0C0; line-height: 1.7; margin: 0 0 24px;"
+          >You set a workout reminder for <strong style="color: #fff;">${time}</strong> — and that time is <strong style="color: #39FF14;">NOW</strong>. Lace up and let's go!</p>
+
+        <!-- Time Badge -->
+        <div style="background: #1A1A2E; border: 2px solid #00E5FF; border-radius: 16px; padding: 20px 24px; margin-bottom: 28px; display: flex; align-items: center; justify-content: space-between;">
+          <div>
+            <p style="color: #6E6E80; font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; margin: 0 0 4px;">Reminder Time</p>
+            <p style="color: #00E5FF; font-size: 32px; font-weight: 900; margin: 0; letter-spacing: 2px;">${time}</p>
+          </div>
+          <div style="font-size: 36px;">⏰</div>
+        </div>
+
+        <!-- Quick Tips -->
+        <div style="background: #141428; border-radius: 14px; padding: 20px 24px; margin-bottom: 28px;">
+          <p style="color: #39FF14; font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; margin: 0 0 12px; font-weight: 700;">Quick Warm-Up Checklist</p>
+          <p style="color: #B0B0C0; margin: 6px 0; font-size: 14px;">🔥 5 min dynamic stretching</p>
+          <p style="color: #B0B0C0; margin: 6px 0; font-size: 14px;">💧 Hydrate before you begin</p>
+          <p style="color: #B0B0C0; margin: 6px 0; font-size: 14px;">🎧 Queue your workout playlist</p>
+          <p style="color: #B0B0C0; margin: 6px 0; font-size: 14px;">📱 Open FitTracker to log your session</p>
+        </div>
+
+        <!-- Motivational Quote -->
+        <div style="border-left: 4px solid #00E5FF; padding: 14px 20px; background: #1A1A2E; border-radius: 0 12px 12px 0;">
+          <p style="color: #00E5FF; font-size: 13px; font-style: italic; margin: 0; line-height: 1.6;">"${quote}"</p>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="background: #1A1A2E; padding: 20px 32px; text-align: center;">
+        <p style="color: #39FF14; font-size: 13px; margin: 0 0 6px; font-weight: 600;">Keep crushing it! 🚀</p>
+        <p style="color: #6E6E80; margin: 0; font-size: 11px;">© 2026 FitTracker · You are receiving this because you enabled workout reminders.</p>
+      </div>
+    </div>`;
+
+  await transporter.sendMail({
+    from: `"FitTracker" <${process.env.EMAIL_USER}>`,
+    to,
+    subject: `🏋️ Workout Reminder — It's ${time}, time to train!`,
+    html,
+  });
+}
+
+module.exports = { sendOtpEmail, sendWelcomeEmail, sendSupportReply, sendDeactivationEmail, sendInspectionEmail, sendResolvedEmail, sendReactivationEmail, sendWorkoutReminderEmail };
 
 // ─── Issue Under Inspection Email ───
 async function sendInspectionEmail(to, name) {

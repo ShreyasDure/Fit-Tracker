@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:math' as math;
-import 'dart:ui';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../core/constants.dart';
 import '../controllers/auth_controller.dart';
 import '../controllers/admin_controller.dart';
 import '../models/user_model.dart';
 import '../services/mongodb_service.dart';
+import '../services/weather_service.dart';
 
 class AdminDashboard extends ConsumerStatefulWidget {
   const AdminDashboard({super.key});
@@ -20,21 +23,79 @@ class AdminDashboard extends ConsumerStatefulWidget {
 class _AdminDashboardState extends ConsumerState<AdminDashboard> with TickerProviderStateMixin {
   late AnimationController _headerController;
   late AnimationController _pulseController;
+  late AnimationController _weatherIconController;
   final ScrollController _mainScrollCtrl = ScrollController();
+
+  WeatherData? _weather;
+  bool _isLoadingWeather = false;
+  String? _weatherError;
+
+  bool get _isTesting {
+    try {
+      return !kIsWeb && Platform.environment.containsKey('FLUTTER_TEST');
+    } catch (_) {
+      return false;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    _headerController = AnimationController(vsync: this, duration: const Duration(seconds: 10))..repeat();
-    _pulseController = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat(reverse: true);
+    _headerController = AnimationController(vsync: this, duration: const Duration(seconds: 10));
+    _pulseController = AnimationController(vsync: this, duration: const Duration(seconds: 2));
+    _weatherIconController = AnimationController(vsync: this, duration: const Duration(seconds: 3));
+    if (!_isTesting) {
+      _headerController.repeat();
+      _pulseController.repeat(reverse: true);
+      _weatherIconController.repeat();
+    }
+    _loadWeather();
+  }
+
+  Future<void> _loadWeather({bool force = false}) async {
+    if (mounted) {
+      setState(() {
+        _isLoadingWeather = true;
+        _weatherError = null;
+      });
+    }
+    try {
+      if (force) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('cached_weather_data');
+      }
+      final data = await WeatherService.fetchWeather();
+      if (mounted) {
+        setState(() {
+          _weather = data;
+          _isLoadingWeather = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _weatherError = e.toString().replaceAll('Exception: ', '');
+          _isLoadingWeather = false;
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
     _headerController.dispose();
     _pulseController.dispose();
+    _weatherIconController.dispose();
     _mainScrollCtrl.dispose();
     super.dispose();
+  }
+
+  String _formatTime(DateTime dt) {
+    final hour = dt.hour;
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final ampm = hour >= 12 ? 'PM' : 'AM';
+    final h = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+    return '$h:$minute $ampm';
   }
 
   @override
@@ -80,6 +141,33 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> with TickerProv
     );
   }
 
+  List<UserModel> _getActiveUsers(List<UserModel> allUsers) {
+    final now = DateTime.now();
+    return allUsers.where((u) {
+      if (u.role == 'admin') return false;
+      if (u.isOnline) return true;
+      if (u.lastActive != null) {
+        return now.difference(u.lastActive!).inMinutes < 5;
+      }
+      return false;
+    }).toList();
+  }
+
+  String _formatLastActive(DateTime? lastActive, bool isOnline) {
+    if (isOnline) return 'Active now';
+    if (lastActive == null) return 'Last active: Unknown';
+    final diff = DateTime.now().difference(lastActive);
+    if (diff.inSeconds < 60) {
+      return 'Active just now';
+    } else if (diff.inMinutes < 60) {
+      return 'Active ${diff.inMinutes}m ago';
+    } else if (diff.inHours < 24) {
+      return 'Active ${diff.inHours}h ago';
+    } else {
+      return 'Active ${diff.inDays}d ago';
+    }
+  }
+
   Widget _buildBackgroundHUD() {
     return Positioned.fill(
       child: Container(
@@ -111,7 +199,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> with TickerProv
                   children: [
                     const Text(
                       'Admin Panel',
-                      style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: -0.5),
+                      style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: -0.5),
                     ),
                     Text(
                       'Welcome back, ${user?.name ?? 'Admin'} 👋',
@@ -122,6 +210,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> with TickerProv
               ),
               _buildHeaderButton(Icons.refresh_rounded, 'Refresh', AppColors.neonCyan, () {
                 ref.read(adminControllerProvider.notifier).refreshAll();
+                _loadWeather(force: true);
               }),
               const SizedBox(width: 8),
               _buildHeaderButton(Icons.logout_rounded, 'Sign Out', AppColors.error, () {
@@ -173,26 +262,330 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> with TickerProv
   }
 
   Widget _buildOverviewSection(AdminDashboardState admin) {
+    final activeUsersList = _getActiveUsers(admin.users);
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text('OVERVIEW', style: TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
         const SizedBox(height: 12),
-        GridView.count(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 2,
-          childAspectRatio: 0.9,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          children: [
-            _buildMetricCard("Total Users", "${admin.totalUsers}", "+5.2%", AppColors.neonCyan, Icons.people_alt_rounded, () => _showUserList(context, 'Total Users', admin.users)),
-            _buildMetricCard("Active Users", "${admin.activeUsers}", "+12.4%", AppColors.neonGreen, Icons.person_rounded, () => _showUserList(context, 'Active Users', admin.users.where((u) => u.isActive).toList())),
-            _buildMetricCard("Premium Users", "${admin.premiumUsers}", "+1.3%", AppColors.neonPurple, Icons.workspace_premium_rounded, () => _showUserList(context, 'Premium Users', admin.users.where((u) => u.points >= 5000).toList())),
-            _buildMetricCard("Total Points", _formatNumber(admin.totalPoints), "+8.7%", AppColors.neonYellow, Icons.star_rounded, () => _showLeaderboard(context, admin.users)),
-          ],
+        SizedBox(
+          height: 140,
+          child: Row(
+            children: [
+              Expanded(
+                child: _buildMetricCard(
+                  "Total Users", 
+                  "${admin.totalUsers}", 
+                  "+5.2%", 
+                  AppColors.neonCyan, 
+                  Icons.people_alt_rounded, 
+                  () => _showUserList(context, 'Total Users', admin.users)
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildMetricCard(
+                  "Active Users", 
+                  "${activeUsersList.length}", 
+                  "+12.4%", 
+                  AppColors.neonGreen, 
+                  Icons.person_rounded, 
+                  () => _showUserList(context, 'Active Users', activeUsersList)
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 140,
+          child: Row(
+            children: [
+              Expanded(
+                child: _buildMetricCard(
+                  "Total Points", 
+                  _formatNumber(admin.totalPoints), 
+                  "+8.7%", 
+                  AppColors.neonYellow, 
+                  Icons.star_rounded, 
+                  () => _showLeaderboard(context)
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildAdminWeatherCard(),
+              ),
+            ],
+          ),
         ),
       ],
+    );
+  }
+
+  Widget _buildAdminWeatherCard() {
+    final glowColor = _weather != null 
+        ? _getWeatherAccentColor(_weather!.condition, _weather!.isDay)
+        : AppColors.neonCyan;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: glowColor.withValues(alpha: 0.15)),
+        boxShadow: [
+          BoxShadow(
+            color: glowColor.withValues(alpha: 0.03),
+            blurRadius: 10,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: _isLoadingWeather 
+          ? const Center(child: CircularProgressIndicator(color: AppColors.neonCyan, strokeWidth: 2))
+          : _weatherError != null 
+              ? Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.wb_cloudy_rounded, color: Colors.white24, size: 24),
+                    const SizedBox(height: 4),
+                    const Text('Weather Unavailable', style: TextStyle(color: Colors.white30, fontSize: 10), textAlign: TextAlign.center),
+                    IconButton(
+                      icon: const Icon(Icons.refresh_rounded, color: AppColors.neonCyan, size: 16),
+                      onPressed: () => _loadWeather(force: true),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                )
+              : _weather == null 
+                  ? Center(
+                      child: TextButton(
+                        onPressed: () => _loadWeather(),
+                        child: const Text('Load Weather', style: TextStyle(color: AppColors.neonCyan, fontSize: 11)),
+                      ),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                _buildAdminWeatherIcon(_weather!.condition, _weather!.isDay),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${_weather!.temp.toStringAsFixed(0)}°C',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            // Mini refresh button with rotation & pulse glow when loading
+                            GestureDetector(
+                              onTap: _isLoadingWeather ? null : () => _loadWeather(force: true),
+                              child: AnimatedBuilder(
+                                animation: _weatherIconController,
+                                builder: (context, child) {
+                                  return Transform.rotate(
+                                    angle: _isLoadingWeather ? _weatherIconController.value * 2 * math.pi : 0.0,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.05),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                                        boxShadow: _isLoadingWeather ? [
+                                          BoxShadow(
+                                            color: glowColor.withValues(alpha: 0.3),
+                                            blurRadius: 8,
+                                            spreadRadius: 1,
+                                          )
+                                        ] : null,
+                                      ),
+                                      child: Icon(
+                                        Icons.refresh_rounded,
+                                        color: _isLoadingWeather ? glowColor : Colors.white70,
+                                        size: 12,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _weather!.condition,
+                              style: TextStyle(
+                                color: glowColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _getAdminWeatherRecommendation(_weather!.condition, _weather!.temp),
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.4),
+                                fontSize: 9,
+                                height: 1.2,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Icon(Icons.access_time_rounded, color: Colors.white.withValues(alpha: 0.3), size: 8),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Synced: ${_formatTime(_weather!.fetchedAt)}',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.3),
+                                fontSize: 8,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+    );
+  }
+
+  Color _getWeatherAccentColor(String condition, int isDay) {
+    if (isDay == 0) return Colors.purpleAccent;
+    switch (condition) {
+      case 'Sunny': return Colors.amber;
+      case 'Rainy': return AppColors.neonCyan;
+      case 'Cloudy': return Colors.blueGrey;
+      case 'Foggy': return Colors.grey;
+      case 'Snowy': return Colors.lightBlueAccent;
+      default: return AppColors.neonCyan;
+    }
+  }
+
+  Widget _buildAdminWeatherIcon(String condition, int isDay) {
+    if (isDay == 0) return const Icon(Icons.nightlight_round_rounded, color: Colors.purpleAccent, size: 20);
+    switch (condition) {
+      case 'Sunny': return const Icon(Icons.wb_sunny_rounded, color: Colors.amber, size: 20);
+      case 'Cloudy': return const Icon(Icons.cloud_rounded, color: Colors.white60, size: 20);
+      case 'Foggy': return const Icon(Icons.blur_on_rounded, color: Colors.white38, size: 20);
+      case 'Snowy': return const Icon(Icons.ac_unit_rounded, color: Colors.lightBlueAccent, size: 20);
+      case 'Rainy':
+      default: return const Icon(Icons.beach_access_rounded, color: AppColors.neonCyan, size: 20);
+    }
+  }
+
+  String _getAdminWeatherRecommendation(String condition, double temp) {
+    if (condition == 'Rainy') {
+      return 'Rain – lower outdoor workout traffic expected.';
+    }
+    if (condition == 'Sunny') {
+      return 'Sunny – high outdoor activity expected.';
+    }
+    if (condition == 'Snowy') {
+      return 'Snow – gyms expected to be busy.';
+    }
+    if (temp > 30) {
+      return 'Extreme Heat – caution for runners.';
+    }
+    return 'Moderate – ideal outdoor exercise conditions.';
+  }
+
+  Widget _buildMetricCardFullWidth(String label, String value, String trend, Color color, IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: color.withValues(alpha: 0.15)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.4),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Text(
+                        value,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        trend,
+                        style: TextStyle(
+                          color: color,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Row(
+              children: [
+                Text(
+                  'View all',
+                  style: TextStyle(
+                    color: color.withValues(alpha: 0.7),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.arrow_forward_rounded,
+                  color: color.withValues(alpha: 0.7),
+                  size: 12,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -200,7 +593,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> with TickerProv
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.03),
           borderRadius: BorderRadius.circular(24),
@@ -208,18 +601,29 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> with TickerProv
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)), child: Icon(icon, color: color, size: 20)),
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: color, size: 18),
+                ),
                 Text(trend, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w800)),
               ],
             ),
-            const Spacer(),
-            Text(value, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900), maxLines: 1, overflow: TextOverflow.ellipsis),
-            Text(label, style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 11, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-            const Spacer(),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900), maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(label, style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 10, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
             Row(
               children: [
                 Text('View all', style: TextStyle(color: color.withValues(alpha: 0.7), fontSize: 10, fontWeight: FontWeight.w800)),
@@ -247,15 +651,6 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> with TickerProv
               _buildActionBox("Add Challenge", "Create new challenge", Icons.add_circle_outline_rounded, AppColors.neonCyan, () => _showAddChallengeModal(context)),
               _buildActionBox("Reward Users", "Give points/rewards", Icons.card_giftcard_rounded, AppColors.neonYellow, () => _showRewardUsersModal(context, admin.users)),
               _buildActionBox("Broadcast", "Send announcements", Icons.campaign_rounded, AppColors.neonPurple, () => _showBroadcastModal(context, 'notification')),
-              _buildActionBox("Export Report", "Download analytics", Icons.file_download_outlined, AppColors.neonCyan, () async {
-                try {
-                  final bytes = await MongoDbService.downloadAdminReport();
-                  // In a real app, use path_provider and open_file to save/open PDF
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Admin Report Downloaded Successfully!'), backgroundColor: AppColors.neonGreen));
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Export Failed: $e'), backgroundColor: AppColors.error));
-                }
-              }),
             ],
           ),
         ),
@@ -557,6 +952,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> with TickerProv
 
   // --- Reused Modals ---
   void _showUserList(BuildContext context, String title, List<UserModel> users) {
+    final admin = ref.read(adminControllerProvider);
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF0F0F1A),
@@ -575,43 +971,245 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> with TickerProv
               const SizedBox(height: 20),
               Row(
                 children: [
+                  Icon(
+                    title == 'Active Users' ? Icons.online_prediction_rounded : Icons.people_rounded,
+                    color: title == 'Active Users' ? AppColors.neonGreen : AppColors.neonCyan,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 10),
                   Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
                   const Spacer(),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(color: AppColors.neonCyan.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                    child: Text('${users.length}', style: const TextStyle(color: AppColors.neonCyan, fontSize: 12, fontWeight: FontWeight.bold)),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: (title == 'Active Users' ? AppColors.neonGreen : AppColors.neonCyan).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      admin.isLoading ? '...' : '${users.length}',
+                      style: TextStyle(
+                        color: title == 'Active Users' ? AppColors.neonGreen : AppColors.neonCyan,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 20),
               Expanded(
-                child: users.isEmpty
-                  ? const Center(child: Text("No users found", style: TextStyle(color: Colors.white38)))
-                  : ListView.builder(
-                      controller: scrollCtrl,
-                      itemCount: users.length,
-                      itemBuilder: (context, i) {
-                        final u = users[i];
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.03), borderRadius: BorderRadius.circular(16)),
-                          child: Row(
-                            children: [
-                              CircleAvatar(radius: 18, backgroundColor: AppColors.neonCyan.withValues(alpha: 0.1), child: Text(u.name.substring(0, 1), style: const TextStyle(color: AppColors.neonCyan))),
-                              const SizedBox(width: 12),
-                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(u.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), Text(u.email, style: const TextStyle(color: Colors.white38, fontSize: 11))])),
-                              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [Text('${u.points} pts', style: const TextStyle(color: AppColors.neonCyan, fontWeight: FontWeight.bold, fontSize: 12)), Text('Lv.${u.level}', style: const TextStyle(color: Colors.white24, fontSize: 10))]),
-                            ],
+                child: admin.isLoading
+                    ? _buildShimmerLoader()
+                    : users.isEmpty
+                        ? _buildEmptyState(title)
+                        : ListView.builder(
+                            controller: scrollCtrl,
+                            physics: const BouncingScrollPhysics(),
+                            itemCount: users.length,
+                            itemBuilder: (context, i) {
+                              final u = users[i];
+                              final isOnline = u.isOnline || (u.lastActive != null && DateTime.now().difference(u.lastActive!).inMinutes < 5);
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.03),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: (isOnline ? AppColors.neonGreen : Colors.white).withValues(alpha: 0.08),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Stack(
+                                      alignment: Alignment.bottomRight,
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 22,
+                                          backgroundColor: (isOnline ? AppColors.neonGreen : AppColors.neonCyan).withValues(alpha: 0.1),
+                                          child: Text(
+                                            u.name.isNotEmpty ? u.name.substring(0, 1).toUpperCase() : 'U',
+                                            style: TextStyle(
+                                              color: isOnline ? AppColors.neonGreen : AppColors.neonCyan,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16,
+                                            ),
+                                          ),
+                                        ),
+                                        if (isOnline)
+                                          Positioned(
+                                            right: 0,
+                                            bottom: 0,
+                                            child: Container(
+                                              padding: const EdgeInsets.all(2),
+                                              decoration: const BoxDecoration(
+                                                color: Color(0xFF0F0F1A),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: AnimatedBuilder(
+                                                animation: _pulseController,
+                                                builder: (context, child) {
+                                                  return Opacity(
+                                                    opacity: 0.4 + 0.6 * _pulseController.value,
+                                                    child: Container(
+                                                      width: 10,
+                                                      height: 10,
+                                                      decoration: const BoxDecoration(
+                                                        color: AppColors.neonGreen,
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  u.name,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 14,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            u.email,
+                                            style: TextStyle(
+                                              color: Colors.white.withValues(alpha: 0.3),
+                                              fontSize: 11,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            _formatLastActive(u.lastActive, u.isOnline),
+                                            style: TextStyle(
+                                              color: isOnline ? AppColors.neonGreen.withValues(alpha: 0.7) : Colors.white24,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          '${u.points} pts',
+                                          style: const TextStyle(
+                                            color: AppColors.neonCyan,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white.withValues(alpha: 0.05),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Text(
+                                            'Lv.${u.level}',
+                                            style: const TextStyle(
+                                              color: Colors.white54,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildShimmerLoader() {
+    return ListView.builder(
+      itemCount: 5,
+      itemBuilder: (context, i) => AnimatedBuilder(
+        animation: _pulseController,
+        builder: (context, child) => Opacity(
+          opacity: 0.3 + 0.4 * _pulseController.value,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.03),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                const CircleAvatar(radius: 22, backgroundColor: Colors.white10),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(width: 100, height: 12, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(4))),
+                      const SizedBox(height: 6),
+                      Container(width: 150, height: 10, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(4))),
+                    ],
+                  ),
+                ),
+                Container(width: 40, height: 12, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(4))),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(String title) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            title == 'Active Users' ? Icons.offline_bolt_rounded : Icons.people_outline_rounded,
+            color: Colors.white24,
+            size: 48,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            title == 'Active Users'
+                ? 'No users currently active 🟢'
+                : 'No users found',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.5),
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -820,57 +1418,110 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> with TickerProv
     );
   }
 
-  void _showLeaderboard(BuildContext context, List<UserModel> users) {
-    final sorted = List<UserModel>.from(users)..sort((a, b) => b.points.compareTo(a.points));
+  void _showLeaderboard(BuildContext context) {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF0F0F1A),
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        maxChildSize: 0.95,
-        minChildSize: 0.5,
-        expand: false,
-        builder: (_, scrollCtrl) => Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
-              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(2))),
-              const SizedBox(height: 20),
-              const Row(
+      builder: (ctx) => FutureBuilder<List<Map<String, dynamic>>>(
+        future: MongoDbService.getLeaderboard(),
+        builder: (ctx, snap) {
+          final entries = snap.data ?? [];
+          return DraggableScrollableSheet(
+            initialChildSize: 0.7,
+            maxChildSize: 0.95,
+            minChildSize: 0.5,
+            expand: false,
+            builder: (_, scrollCtrl) => Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
                 children: [
-                  Icon(Icons.leaderboard_rounded, color: AppColors.neonYellow, size: 20),
-                  SizedBox(width: 10),
-                  Text("Leaderboard", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                  Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(2))),
+                  const SizedBox(height: 20),
+                  const Row(
+                    children: [
+                      Icon(Icons.leaderboard_rounded, color: AppColors.neonYellow, size: 20),
+                      SizedBox(width: 10),
+                      Text("Leaderboard", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  if (snap.connectionState == ConnectionState.waiting)
+                    const Expanded(child: Center(child: CircularProgressIndicator(color: AppColors.neonYellow)))
+                  else if (entries.isEmpty)
+                    const Expanded(child: Center(child: Text('No data yet', style: TextStyle(color: Colors.white38))))
+                  else
+                    Expanded(
+                      child: ListView.builder(
+                        controller: scrollCtrl,
+                        itemCount: entries.length,
+                        itemBuilder: (context, i) {
+                          final u = entries[i];
+                          final name = u['name'] ?? 'User';
+                          final pts = (u['points'] as num? ?? 0).toInt();
+                          final streak = (u['streak'] as num? ?? 0).toInt();
+                          final isTop3 = i < 3;
+                          final rankColor = i == 0
+                              ? const Color(0xFFFFD700)
+                              : i == 1
+                                  ? const Color(0xFFC0C0C0)
+                                  : i == 2
+                                      ? const Color(0xFFCD7F32)
+                                      : Colors.white38;
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: isTop3
+                                  ? rankColor.withValues(alpha: 0.06)
+                                  : Colors.white.withValues(alpha: 0.03),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isTop3 ? rankColor.withValues(alpha: 0.25) : Colors.white.withValues(alpha: 0.04),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                // Rank badge
+                                Container(
+                                  width: 28, height: 28,
+                                  decoration: BoxDecoration(
+                                    color: rankColor.withValues(alpha: isTop3 ? 0.15 : 0.05),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Center(
+                                    child: isTop3
+                                        ? Text(['🥇', '🥈', '🥉'][i], style: const TextStyle(fontSize: 14))
+                                        : Text('${i + 1}', style: TextStyle(color: rankColor, fontWeight: FontWeight.w900, fontSize: 11)),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
+                                      if (streak > 0)
+                                        Text('🔥 $streak day streak', style: TextStyle(color: Colors.white.withValues(alpha: 0.35), fontSize: 10)),
+                                    ],
+                                  ),
+                                ),
+                                Text(
+                                  '${_formatNumber(pts)} pts',
+                                  style: TextStyle(color: rankColor, fontWeight: FontWeight.w900, fontSize: 13),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
                 ],
               ),
-              const SizedBox(height: 20),
-              Expanded(
-                child: ListView.builder(
-                  controller: scrollCtrl,
-                  itemCount: sorted.length,
-                  itemBuilder: (context, i) {
-                    final u = sorted[i];
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.03), borderRadius: BorderRadius.circular(16)),
-                      child: Row(
-                        children: [
-                          SizedBox(width: 24, child: Text('${i + 1}', style: const TextStyle(color: Colors.white38, fontWeight: FontWeight.bold))),
-                          const SizedBox(width: 12),
-                          Expanded(child: Text(u.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                          Text('${u.points} pts', style: const TextStyle(color: AppColors.neonYellow, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }

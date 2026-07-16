@@ -3,12 +3,34 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'api_config.dart';
+import '../user/home_screen.dart';
+import '../controllers/auth_controller.dart';
+import 'health_service.dart';
 
 // MongoDB backend service — all HTTP calls to our Express API
 class MongoDbService {
   static String? _token;
   static const _timeout = Duration(seconds: 8);
+  static void Function()? onTokenExpired;
+
+  static bool isOnline = true;
+  static Future<Map<String, dynamic>> Function(
+    String type, int duration, double distance, int calories, int heartRateAvg, double pace
+  )? mockSaveWorkout;
+
+  // Test mocks
+  static Future<String> Function(String email)? mockForgotPassword;
+  static Future<bool> Function(String email, String otp)? mockVerifyOtp;
+  static Future<String> Function(String email, String otp, String newPassword)? mockResetPassword;
+  static List<Map<String, dynamic>>? mockBmiHistory;
+  static List<Map<String, dynamic>>? mockScheduledReminders;
+  static List<Map<String, dynamic>>? mockUsers;
+  static Map<String, dynamic>? mockAdminAnalytics;
+  static List<Map<String, dynamic>>? mockAdminActivity;
+  static Future<void> Function(String userId)? mockDeleteUser;
 
   static Map<String, String> get _headers => {
     'Content-Type': 'application/json',
@@ -19,6 +41,22 @@ class MongoDbService {
   static void setToken(String? token) => _token = token;
   static String? get token => _token;
   static bool get isAuthenticated => _token != null;
+
+  static Future<void> _cacheLocalString(String key, String value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(key, value);
+    } catch (_) {}
+  }
+
+  static Future<String?> _getLocalString(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(key);
+    } catch (_) {
+      return null;
+    }
+  }
 
   // ─── Helper: HTTP with timeout and standardized error handling ───
 
@@ -61,6 +99,9 @@ class MongoDbService {
     }
     final data = json.decode(response.body);
     final error = data['error'] ?? 'Request failed with status: ${response.statusCode}';
+    if (response.statusCode == 401 || error == 'Invalid token' || error == 'No token provided' || error == 'jwt expired') {
+      onTokenExpired?.call();
+    }
     throw Exception(error);
   }
 
@@ -95,17 +136,20 @@ class MongoDbService {
   // ─── OTP Password Reset ───
 
   static Future<String> forgotPassword(String email) async {
+    if (mockForgotPassword != null) return mockForgotPassword!(email);
     final response = await _post('/auth/forgot-password', {'email': email});
     return json.decode(response.body)['message'] ?? 'OTP sent if account exists.';
   }
 
   static Future<bool> verifyOtp(String email, String otp) async {
+    if (mockVerifyOtp != null) return mockVerifyOtp!(email, otp);
     final response = await _post('/auth/verify-otp', {'email': email, 'otp': otp});
     final data = json.decode(response.body);
     return data['verified'] == true;
   }
 
   static Future<String> resetPassword(String email, String otp, String newPassword) async {
+    if (mockResetPassword != null) return mockResetPassword!(email, otp, newPassword);
     final response = await _post('/auth/reset-password', {'email': email, 'otp': otp, 'newPassword': newPassword});
     return json.decode(response.body)['message'] ?? 'Password updated';
   }
@@ -170,8 +214,18 @@ class MongoDbService {
       final today = DateTime.now();
       final date = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
       final response = await _get('/health/today?date=$date');
-      return json.decode(response.body)['health'];
+      final res = json.decode(response.body)['health'] as Map<String, dynamic>?;
+      if (res != null) {
+        await _cacheLocalString('cached_today_health', json.encode(res));
+      }
+      return res;
     } catch (_) {
+      final cached = await _getLocalString('cached_today_health');
+      if (cached != null) {
+        try {
+          return json.decode(cached) as Map<String, dynamic>?;
+        } catch (_) {}
+      }
       return null;
     }
   }
@@ -231,6 +285,19 @@ class MongoDbService {
     }
   }
 
+  static Future<List<Map<String, dynamic>>> getLeaderboard() async {
+    try {
+      final response = await _get('/social/leaderboard');
+      final data = json.decode(response.body);
+      final list = data['leaderboard'];
+      if (list is List) return List<Map<String, dynamic>>.from(list);
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+
   static Future<Map<String, dynamic>> saveBmi(double weight, double height, double bmi) async {
     final response = await _post('/health/bmi', {
       'weight': weight,
@@ -241,13 +308,24 @@ class MongoDbService {
   }
 
   static Future<List<Map<String, dynamic>>> getBmiHistory() async {
+    if (mockBmiHistory != null) return mockBmiHistory!;
     try {
       final response = await _get('/health/bmi');
       final data = json.decode(response.body);
       final list = data['history'];
-      if (list is List) return List<Map<String, dynamic>>.from(list);
+      if (list is List) {
+        final res = List<Map<String, dynamic>>.from(list);
+        await _cacheLocalString('cached_bmi_history', json.encode(res));
+        return res;
+      }
       return [];
     } catch (_) {
+      final cached = await _getLocalString('cached_bmi_history');
+      if (cached != null) {
+        try {
+          return List<Map<String, dynamic>>.from(json.decode(cached));
+        } catch (_) {}
+      }
       return [];
     }
   }
@@ -259,9 +337,19 @@ class MongoDbService {
       final response = await _get('/health/history');
       final data = json.decode(response.body);
       final list = data['history'];
-      if (list is List) return List<Map<String, dynamic>>.from(list);
+      if (list is List) {
+        final res = List<Map<String, dynamic>>.from(list);
+        await _cacheLocalString('cached_health_history', json.encode(res));
+        return res;
+      }
       return [];
     } catch (_) {
+      final cached = await _getLocalString('cached_health_history');
+      if (cached != null) {
+        try {
+          return List<Map<String, dynamic>>.from(json.decode(cached));
+        } catch (_) {}
+      }
       return [];
     }
   }
@@ -269,8 +357,18 @@ class MongoDbService {
   static Future<Map<String, dynamic>?> getWeeklyHealthSummary() async {
     try {
       final response = await _get('/health/weekly-summary');
-      return json.decode(response.body)['weekly'] as Map<String, dynamic>?;
+      final res = json.decode(response.body)['weekly'] as Map<String, dynamic>?;
+      if (res != null) {
+        await _cacheLocalString('cached_weekly_summary', json.encode(res));
+      }
+      return res;
     } catch (_) {
+      final cached = await _getLocalString('cached_weekly_summary');
+      if (cached != null) {
+        try {
+          return json.decode(cached) as Map<String, dynamic>?;
+        } catch (_) {}
+      }
       return null;
     }
   }
@@ -443,11 +541,13 @@ class MongoDbService {
   // ─── Users (Admin) ───
 
   static Future<Map<String, dynamic>> getAdminAnalytics() async {
+    if (mockAdminAnalytics != null) return mockAdminAnalytics!;
     final response = await _get('/admin/analytics');
     return json.decode(response.body);
   }
 
   static Future<List<Map<String, dynamic>>> getAdminActivity() async {
+    if (mockAdminActivity != null) return mockAdminActivity!;
     try {
       final response = await _get('/admin/activity');
       final data = json.decode(response.body);
@@ -476,15 +576,29 @@ class MongoDbService {
     return json.decode(response.body);
   }
 
-  static Future<Uint8List> downloadAdminReport() async {
-    final response = await http.get(Uri.parse('${ApiConfig.backendUrl}/admin/report'), headers: _headers).timeout(const Duration(seconds: 15));
-    if (response.statusCode == 200) return response.bodyBytes;
-    throw Exception('Admin report failed');
+  static Future<void> updateOnlineStatus(bool isOnline) async {
+    try {
+      await _post('/auth/status', {'isOnline': isOnline});
+    } catch (_) {}
   }
 
-  static Future<List<Map<String, dynamic>>> getUsers() async {
+  static Future<void> logoutSession() async {
     try {
-      final response = await _get('/users');
+      await _post('/auth/logout', {});
+    } catch (_) {}
+  }
+
+  static Future<List<Map<String, dynamic>>> getUsers({DateTime? startDate, DateTime? endDate}) async {
+    if (mockUsers != null) return mockUsers!;
+    try {
+      String query = '';
+      if (startDate != null) {
+        query += '${query.isEmpty ? '?' : '&'}startDate=${startDate.toIso8601String()}';
+      }
+      if (endDate != null) {
+        query += '${query.isEmpty ? '?' : '&'}endDate=${endDate.toIso8601String()}';
+      }
+      final response = await _get('/users$query');
       final data = json.decode(response.body);
       final list = data['users'];
       if (list is List) return List<Map<String, dynamic>>.from(list);
@@ -492,6 +606,18 @@ class MongoDbService {
     } catch (_) {
       return [];
     }
+  }
+
+  static Future<void> deleteUser(String userId) async {
+    if (mockDeleteUser != null) {
+      await mockDeleteUser!(userId);
+      return;
+    }
+    final response = await http.delete(
+      Uri.parse('${ApiConfig.backendUrl}/users/$userId'),
+      headers: _headers,
+    ).timeout(_timeout);
+    _handleResponse(response);
   }
 
   static Future<Map<String, dynamic>> updateUserPoints(String userId, int amount) async {
@@ -504,17 +630,103 @@ class MongoDbService {
     return json.decode(response.body);
   }
 
+  static Future<List<Map<String, dynamic>>> getUserActivities() async {
+    try {
+      final response = await _get('/users/me/activities');
+      final data = json.decode(response.body);
+      final list = data['activities'];
+      if (list is List) {
+        final res = List<Map<String, dynamic>>.from(list);
+        await _cacheLocalString('cached_user_activities', json.encode(res));
+        return res;
+      }
+      return [];
+    } catch (_) {
+      final cached = await _getLocalString('cached_user_activities');
+      if (cached != null) {
+        try {
+          return List<Map<String, dynamic>>.from(json.decode(cached));
+        } catch (_) {}
+      }
+      return [];
+    }
+  }
+
   // ─── Workouts ───
 
   static Future<Map<String, dynamic>> saveWorkout({
     required String type, required int duration,
     double distance = 0, int calories = 0, int heartRateAvg = 0, double pace = 0,
   }) async {
-    final response = await _post('/workouts', {
-      'type': type, 'duration': duration, 'distance': distance,
-      'calories': calories, 'heartRateAvg': heartRateAvg, 'pace': pace,
-    });
-    return json.decode(response.body);
+    if (!isOnline) {
+      return _queueOfflineWorkout(type, duration, distance, calories, heartRateAvg, pace);
+    }
+    if (mockSaveWorkout != null) {
+      return mockSaveWorkout!(type, duration, distance, calories, heartRateAvg, pace);
+    }
+    try {
+      final response = await _post('/workouts', {
+        'type': type, 'duration': duration, 'distance': distance,
+        'calories': calories, 'heartRateAvg': heartRateAvg, 'pace': pace,
+      });
+      return json.decode(response.body);
+    } catch (e) {
+      if (e.toString().contains('SocketException') || e.toString().contains('TimeoutException') || e.toString().contains('HttpException')) {
+        return _queueOfflineWorkout(type, duration, distance, calories, heartRateAvg, pace);
+      }
+      rethrow;
+    }
+  }
+
+  static Future<Map<String, dynamic>> _queueOfflineWorkout(
+    String type, int duration, double distance, int calories, int heartRateAvg, double pace
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final queue = prefs.getStringList('offline_workouts_queue') ?? [];
+    final workoutData = {
+      'type': type,
+      'duration': duration,
+      'distance': distance,
+      'calories': calories,
+      'heartRateAvg': heartRateAvg,
+      'pace': pace,
+      'timestamp': DateTime.now().toIso8601String(),
+    };
+    queue.add(json.encode(workoutData));
+    await prefs.setStringList('offline_workouts_queue', queue);
+    return {
+      'status': 'queued',
+      'pointsEarned': 100,
+      'workout': workoutData,
+    };
+  }
+
+  static Future<void> syncOfflineWorkouts(Ref ref) async {
+    final prefs = await SharedPreferences.getInstance();
+    final queue = prefs.getStringList('offline_workouts_queue') ?? [];
+    if (queue.isEmpty) return;
+
+    final remaining = <String>[];
+    for (final raw in queue) {
+      try {
+        final workout = json.decode(raw);
+        await saveWorkout(
+          type: workout['type'],
+          duration: (workout['duration'] as num).toInt(),
+          distance: (workout['distance'] as num?)?.toDouble() ?? 0.0,
+          calories: (workout['calories'] as num?)?.toInt() ?? 0,
+          heartRateAvg: (workout['heartRateAvg'] as num?)?.toInt() ?? 0,
+          pace: (workout['pace'] as num?)?.toDouble() ?? 0.0,
+        );
+      } catch (e) {
+        remaining.add(raw);
+      }
+    }
+    await prefs.setStringList('offline_workouts_queue', remaining);
+
+    ref.invalidate(userActivitiesProvider);
+    ref.read(authControllerProvider.notifier).refreshProfile();
+    ref.read(healthControllerProvider.notifier).sync();
   }
 
   static Future<List<Map<String, dynamic>>> getWorkouts() async {
@@ -567,4 +779,52 @@ class MongoDbService {
     final response = await _get('/broadcast/history');
     return List<Map<String, dynamic>>.from(json.decode(response.body)['history']);
   }
+
+  static Future<List<Map<String, dynamic>>> getScheduledReminders() async {
+    if (mockScheduledReminders != null) return mockScheduledReminders!;
+    try {
+      final response = await _get('/users/me/reminders');
+      final data = json.decode(response.body);
+      final list = data['reminders'];
+      if (list is List) return List<Map<String, dynamic>>.from(list);
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<Map<String, dynamic>> scheduleReminder(String time, String label) async {
+    final response = await _post('/users/me/reminders', {'time': time, 'label': label});
+    return json.decode(response.body)['reminder'];
+  }
+
+  static Future<void> deleteReminder(String id) async {
+    final response = await http.delete(
+      Uri.parse('${ApiConfig.backendUrl}/users/me/reminders/$id'),
+      headers: _headers,
+    ).timeout(_timeout);
+    _handleResponse(response);
+  }
+
+  // ─── Level Settings (public, no auth required) ───
+
+  static Future<Map<String, dynamic>> getLevelSettings() async {
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.backendUrl}/settings/public'),
+      ).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    // Return defaults on failure
+    return {
+      'silverMinPoints': 2000,
+      'goldMinPoints': 5000,
+      'bronzeBenefits': 'Basic tracking, Community access',
+      'silverBenefits': 'AI insights, Priority support',
+      'goldBenefits': 'All features, Custom plans, 2x points',
+    };
+  }
 }
+

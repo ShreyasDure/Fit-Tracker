@@ -4,6 +4,7 @@ import '../core/constants.dart';
 import '../controllers/auth_controller.dart';
 import '../services/mongodb_service.dart';
 import '../services/biometric_service.dart';
+import '../services/local_notification_service.dart';
 
 // Theme provider
 final themeProvider = StateNotifierProvider<ThemeNotifier, ThemeMode>((ref) => ThemeNotifier());
@@ -113,6 +114,16 @@ class SettingsScreen extends ConsumerWidget {
                 },
               ),
             ),
+            GestureDetector(
+              onTap: () => _showScheduledReminders(context, ref),
+              child: _SettingsTile(
+                icon: Icons.alarm_rounded,
+                title: 'Workout Reminders',
+                subtitle: 'Schedule daily reminders',
+                color: AppColors.neonCyan,
+                trailing: Icon(Icons.chevron_right, color: Theme.of(context).textTheme.bodySmall!.color!),
+              ),
+            ),
 
             const SizedBox(height: AppSizes.xl),
             // ─── Security (BIOMETRIC) ───
@@ -190,6 +201,15 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+
+  void _showScheduledReminders(BuildContext context, WidgetRef ref) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => const _ScheduledRemindersSheet(),
     );
   }
 
@@ -526,6 +546,152 @@ class _SettingsTile extends StatelessWidget {
             ),
           ),
           trailing,
+        ],
+      ),
+    );
+  }
+}
+
+class _ScheduledRemindersSheet extends ConsumerStatefulWidget {
+  const _ScheduledRemindersSheet();
+
+  @override
+  ConsumerState<_ScheduledRemindersSheet> createState() => _ScheduledRemindersSheetState();
+}
+
+class _ScheduledRemindersSheetState extends ConsumerState<_ScheduledRemindersSheet> {
+  List<Map<String, dynamic>> _reminders = [];
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadReminders();
+  }
+
+  Future<void> _loadReminders() async {
+    setState(() => _isLoading = true);
+    final list = await MongoDbService.getScheduledReminders();
+    if (mounted) {
+      setState(() {
+        _reminders = list;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _addReminder() async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.neonCyan,
+              surface: Color(0xFF0F0F25),
+              onSurface: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      final timeStr = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+      // Save to backend
+      final reminder = await MongoDbService.scheduleReminder(timeStr, 'Workout Reminder');
+      // Schedule local device notification
+      final reminderId = reminder['id']?.hashCode ?? picked.hashCode;
+      await LocalNotificationService.scheduleWorkoutReminder(
+        id: reminderId.abs() % 100000,
+        label: 'Workout Reminder',
+        hour: picked.hour,
+        minute: picked.minute,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⏰ Reminder set for $timeStr. You will be notified daily!'),
+            backgroundColor: AppColors.neonCyan,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      _loadReminders();
+    }
+  }
+
+  Future<void> _deleteReminder(String id) async {
+    // Cancel local notification first
+    await LocalNotificationService.cancelReminder(id.hashCode.abs() % 100000);
+    // Delete from backend
+    await MongoDbService.deleteReminder(id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🗑️ Reminder deleted'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+    _loadReminders();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(AppSizes.xl, AppSizes.xl, AppSizes.xl, AppSizes.xl + MediaQuery.of(context).viewInsets.bottom),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Workout Reminders', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+              IconButton(
+                icon: const Icon(Icons.add_alarm_rounded, color: AppColors.neonCyan),
+                onPressed: _addReminder,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSizes.md),
+          if (_isLoading)
+            const Center(child: CircularProgressIndicator(color: AppColors.neonCyan))
+          else if (_reminders.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: Text(
+                  'No reminders scheduled yet.',
+                  style: TextStyle(color: Theme.of(context).textTheme.bodySmall!.color!),
+                ),
+              ),
+            )
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _reminders.length,
+              itemBuilder: (context, index) {
+                final r = _reminders[index];
+                return ListTile(
+                  leading: const Icon(Icons.alarm_rounded, color: AppColors.neonCyan),
+                  title: Text(r['time'] ?? ''),
+                  subtitle: Text(r['label'] ?? 'Workout Reminder'),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_rounded, color: AppColors.error),
+                    onPressed: () => _deleteReminder(r['id'] ?? ''),
+                  ),
+                );
+              },
+            ),
+          const SizedBox(height: AppSizes.lg),
         ],
       ),
     );

@@ -59,3 +59,27 @@ class AppColors {
         end: Alignment.bottomRight,
       );
 }
+
+String toPascalCase(String input) {
+  if (input.isEmpty) return '';
+  return input
+      .split(RegExp(r'[\s_\-]+'))
+      .map((word) {
+        if (word.isEmpty) return '';
+        // preserve emojis by checking characters or just uppercase the first code unit
+        return '${word[0].toUpperCase()}${word.substring(1)}';
+      })
+      .join('');
+}
+
+String toTitleCase(String input) {
+  if (input.isEmpty) return '';
+  return input
+      .split(RegExp(r'[\s_\-]+'))
+      .map((word) {
+        if (word.isEmpty) return '';
+        return '${word[0].toUpperCase()}${word.substring(1)}';
+      })
+      .join(' ');
+}
+

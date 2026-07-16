@@ -2,14 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:ui';
 import 'dart:math' as math;
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../core/constants.dart';
 import '../controllers/auth_controller.dart';
 import '../services/health_service.dart';
 import 'settings_screen.dart';
-
 import 'health_report_screen.dart';
 import '../services/mongodb_service.dart';
+import 'points_screen.dart' show levelSettingsProvider;
 
 final achievementsProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
   return await MongoDbService.getAchievements();
@@ -26,11 +28,23 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with TickerProvid
   late AnimationController _auraController;
   late AnimationController _floatController;
 
+  bool get _isTesting {
+    try {
+      return !kIsWeb && Platform.environment.containsKey('FLUTTER_TEST');
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    _auraController = AnimationController(vsync: this, duration: const Duration(seconds: 4))..repeat();
-    _floatController = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat(reverse: true);
+    _auraController = AnimationController(vsync: this, duration: const Duration(seconds: 4));
+    _floatController = AnimationController(vsync: this, duration: const Duration(seconds: 2));
+    if (!_isTesting) {
+      _auraController.repeat();
+      _floatController.repeat(reverse: true);
+    }
   }
 
   @override
@@ -85,10 +99,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with TickerProvid
                   // 6. Badges & Achievements
                   _buildBadgesSection(health),
                   
-                  const SizedBox(height: 30),
-                  
-                  // 7. Today's Activity Summary
-                  _buildActivitySummary(health),
+
                   
                   const SizedBox(height: 40),
                   
@@ -192,7 +203,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with TickerProvid
         ),
         const SizedBox(height: 20),
         Text(
-          user?.name ?? 'User',
+          toPascalCase(user?.name ?? 'User'),
           style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: -0.5),
         ),
         const SizedBox(height: 4),
@@ -203,8 +214,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with TickerProvid
             borderRadius: BorderRadius.circular(10),
           ),
           child: Text(
-            '${user?.levelName ?? 'Bronze'} Athlete'.toUpperCase(),
-            style: const TextStyle(color: AppColors.neonCyan, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 2),
+            toPascalCase('${user?.levelName ?? 'Bronze'}Athlete'),
+            style: const TextStyle(color: AppColors.neonCyan, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.5),
           ),
         ),
       ],
@@ -212,11 +223,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with TickerProvid
   }
 
   Widget _buildStatsGrid(user) {
+    final levelSettingsAsync = ref.watch(levelSettingsProvider);
+    final silverMin = (levelSettingsAsync.value?['silverMinPoints'] as num? ?? 2000).toInt();
+    final goldMin = (levelSettingsAsync.value?['goldMinPoints'] as num? ?? 5000).toInt();
+    final levelName = user?.levelNameWith(silverMin, goldMin) ?? 'Bronze';
+    final pts = user?.points ?? 0;
+
     final stats = [
-      {'label': 'TOTAL POINTS', 'value': '${user?.points ?? 0}', 'icon': Icons.stars_rounded, 'color': AppColors.neonCyan},
+      {'label': 'TOTAL POINTS', 'value': '$pts', 'icon': Icons.stars_rounded, 'color': AppColors.neonCyan},
       {'label': 'DAILY STREAK', 'value': '${user?.streak ?? 0}d', 'icon': Icons.local_fire_department_rounded, 'color': AppColors.neonOrange},
-      {'label': 'CURRENT LVL', 'value': 'Lv.${user?.level ?? 1}', 'icon': Icons.emoji_events_rounded, 'color': AppColors.neonPurple},
-      {'label': 'WEEKLY GROWTH', 'value': '+14%', 'icon': Icons.trending_up_rounded, 'color': AppColors.neonGreen},
+      {'label': 'CURRENT LVL', 'value': levelName, 'icon': Icons.emoji_events_rounded, 'color': AppColors.neonPurple},
+      {'label': 'NEXT LEVEL AT', 'value': levelName == 'Bronze' ? '${silverMin}pts' : levelName == 'Silver' ? '${goldMin}pts' : 'MAX', 'icon': Icons.trending_up_rounded, 'color': AppColors.neonGreen},
     ];
 
     return GridView.builder(
@@ -254,12 +271,27 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with TickerProvid
   }
 
   Widget _buildXPProgression(user) {
+    final levelSettingsAsync = ref.watch(levelSettingsProvider);
+    final silverMin = (levelSettingsAsync.value?['silverMinPoints'] as num? ?? 2000).toInt();
+    final goldMin = (levelSettingsAsync.value?['goldMinPoints'] as num? ?? 5000).toInt();
+    final pts = user?.points ?? 0;
+    final levelName = user?.levelNameWith(silverMin, goldMin) ?? 'Bronze';
+    final progress = user?.levelProgressWith(silverMin, goldMin) ?? 0.0;
+    final ptsToNext = user?.pointsToNextLevelWith(silverMin, goldMin) ?? silverMin;
+    final levelColor = levelName == 'Gold'
+        ? const Color(0xFFFFD700)
+        : levelName == 'Silver'
+            ? const Color(0xFFC0C0C0)
+            : const Color(0xFFCD7F32);
+    final nextLevelName = levelName == 'Bronze' ? 'Silver' : levelName == 'Silver' ? 'Gold' : 'Max';
+    final targetPts = levelName == 'Bronze' ? silverMin : levelName == 'Silver' ? goldMin : goldMin;
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.02),
         borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        border: Border.all(color: levelColor.withValues(alpha: 0.15)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -268,25 +300,33 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with TickerProvid
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('LEVEL PROGRESSION', style: TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 2)),
-              Text('XP: 1,450 / 2,000', style: TextStyle(color: AppColors.neonCyan.withValues(alpha: 0.7), fontSize: 10, fontWeight: FontWeight.bold)),
+              Text(
+                '$pts / $targetPts pts',
+                style: TextStyle(color: levelColor.withValues(alpha: 0.8), fontSize: 10, fontWeight: FontWeight.bold),
+              ),
             ],
           ),
           const SizedBox(height: 16),
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
             child: LinearProgressIndicator(
-              value: user?.levelProgress ?? 0.72,
+              value: progress.clamp(0.0, 1.0),
               minHeight: 12,
               backgroundColor: Colors.white.withValues(alpha: 0.03),
-              valueColor: const AlwaysStoppedAnimation<Color>(AppColors.neonCyan),
+              valueColor: AlwaysStoppedAnimation<Color>(levelColor),
             ),
           ),
           const SizedBox(height: 12),
           Row(
             children: [
-              const Text('600 XP TO', style: TextStyle(color: Colors.white24, fontSize: 10, fontWeight: FontWeight.bold)),
-              const SizedBox(width: 6),
-              Text('SILVER RANK'.toUpperCase(), style: const TextStyle(color: AppColors.neonCyan, fontSize: 10, fontWeight: FontWeight.w900)),
+              if (levelName == 'Gold') ...
+                [Text('MAX LEVEL REACHED', style: TextStyle(color: const Color(0xFFFFD700), fontSize: 10, fontWeight: FontWeight.w900))]
+              else ...
+                [
+                  Text('$ptsToNext pts to', style: const TextStyle(color: Colors.white24, fontSize: 10, fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 6),
+                  Text('$nextLevelName RANK'.toUpperCase(), style: TextStyle(color: levelColor, fontSize: 10, fontWeight: FontWeight.w900)),
+                ],
             ],
           ),
         ],
@@ -396,7 +436,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with TickerProvid
               },
             );
           },
-          loading: () => const Center(child: LinearProgressIndicator()),
+          loading: () => Center(
+            child: _isTesting 
+              ? const Text('Loading...', style: TextStyle(color: Colors.white24, fontSize: 10)) 
+              : const LinearProgressIndicator(),
+          ),
           error: (e, s) => const Text('Failed to load achievements', style: TextStyle(color: AppColors.error, fontSize: 10)),
         ),
       ],
@@ -412,44 +456,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with TickerProvid
     }
   }
 
-  Widget _buildActivitySummary(HealthData health) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildActivityRing('Steps', health.steps.toString(), AppColors.neonCyan, 0.7),
-          _buildActivityRing('Cals', health.calories.toString(), AppColors.neonOrange, 0.5),
-          _buildActivityRing('Mins', health.activeMinutes.toString(), AppColors.neonGreen, 0.8),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildActivityRing(String label, String value, Color color, double progress) {
-    return Column(
-      children: [
-        SizedBox(
-          width: 44,
-          height: 44,
-          child: CircularProgressIndicator(
-            value: progress,
-            strokeWidth: 5,
-            valueColor: AlwaysStoppedAnimation<Color>(color),
-            backgroundColor: Colors.white.withValues(alpha: 0.03),
-          ),
-        ),
-        const SizedBox(height: 10),
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900)),
-        Text(label.toUpperCase(), style: const TextStyle(color: Colors.white24, fontSize: 8, fontWeight: FontWeight.w900)),
-      ],
-    );
-  }
 
   Widget _buildQuickActionHub() {
     return Row(

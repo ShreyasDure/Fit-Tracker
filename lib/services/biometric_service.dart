@@ -10,8 +10,17 @@ class BiometricService {
   static const String _tokenKey = 'auth_token';
   static const String _userDataKey = 'user_data';
 
+  // Test mocks
+  static bool? mockIsAvailable;
+  static bool? mockIsEnabled;
+  static bool? mockHasEnrolled;
+  static bool? mockAuthenticateResult;
+  static String? mockStoredToken;
+  static Map<String, dynamic>? mockStoredUserData;
+
   // Check if device supports any biometrics
   static Future<bool> isBiometricAvailable() async {
+    if (mockIsAvailable != null) return mockIsAvailable!;
     final bool canAuthenticateWithBiometrics = await _auth.canCheckBiometrics;
     final bool canAuthenticate = canAuthenticateWithBiometrics || await _auth.isDeviceSupported();
     return canAuthenticate;
@@ -19,12 +28,14 @@ class BiometricService {
 
   // Check if biometrics are actually enrolled
   static Future<bool> hasEnrolledBiometrics() async {
+    if (mockHasEnrolled != null) return mockHasEnrolled!;
     final List<BiometricType> availableBiometrics = await _auth.getAvailableBiometrics();
     return availableBiometrics.isNotEmpty;
   }
 
   // Authenticate user
   static Future<bool> authenticate() async {
+    if (mockAuthenticateResult != null) return mockAuthenticateResult!;
     try {
       return await _auth.authenticate(
         localizedReason: 'Authenticate to access FitTracker',
@@ -52,15 +63,18 @@ class BiometricService {
   }
 
   static Future<bool> isBiometricEnabled() async {
+    if (mockIsEnabled != null) return mockIsEnabled!;
     final value = await _storage.read(key: _biometricKey);
     return value == 'true';
   }
 
   static Future<String?> getStoredToken() async {
+    if (mockStoredToken != null) return mockStoredToken!;
     return await _storage.read(key: _tokenKey);
   }
 
   static Future<Map<String, dynamic>?> getStoredUserData() async {
+    if (mockStoredUserData != null) return mockStoredUserData!;
     final data = await _storage.read(key: _userDataKey);
     if (data != null) {
       return json.decode(data);

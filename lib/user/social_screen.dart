@@ -140,7 +140,7 @@ class SocialScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Social'),
+        title: const Text('Social Feed'),
         leading: IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => Navigator.pop(context)),
       ),
       body: feedState.when(

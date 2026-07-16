@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io' show Platform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:math' as math;
 import 'constants.dart';
@@ -29,6 +31,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
   bool _showSignupOtp = false;
   bool _otpLoading = false;
   String? _otpError;
+  String? _emailError;
+  String? _passwordError;
 
   late AnimationController _animCtrl;
   late AnimationController _pulseCtrl;
@@ -38,17 +42,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
   bool _isBiometricSupported = false;
   bool _isBiometricEnabled = false;
 
+  bool get _isTesting => !kIsWeb && Platform.environment.containsKey('FLUTTER_TEST');
+
 
   @override
   void initState() {
     super.initState();
     _animCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200));
-    _pulseCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 4))..repeat(reverse: true);
-    _bgCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 15))..repeat();
+    _pulseCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 4));
+    _bgCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 15));
+    if (!_isTesting) {
+      _pulseCtrl.repeat(reverse: true);
+      _bgCtrl.repeat();
+    }
     _fadeAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOutQuart);
     _animCtrl.forward();
 
     _checkBiometrics();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final error = ref.read(authControllerProvider).error;
+        if (error != null) {
+          _showAuthError(error);
+        }
+      }
+    });
   }
 
   @override
@@ -78,14 +97,82 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
     }
   }
 
+  void _showAuthError(String error) {
+    if (error == 'Invalid credentials') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else if (error == 'Account not found') {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Error', style: TextStyle(color: Colors.white)),
+          backgroundColor: const Color(0xFF1E1E2C),
+          content: Text(error, style: const TextStyle(color: Colors.white70)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK', style: TextStyle(color: AppColors.neonCyan)),
+            ),
+          ],
+        ),
+      );
+    } else if (error == 'Biometric authentication failed') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$error. Please enter your password.'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   void _submit() async {
     final email = _emailCtrl.text.trim();
     final password = _passwordCtrl.text.trim();
-    if (email.isEmpty || password.isEmpty) return;
+
+    setState(() {
+      _emailError = null;
+      _passwordError = null;
+    });
 
     if (_isLogin) {
+      if (email.isEmpty && password.isEmpty) {
+        setState(() {
+          _emailError = 'Please fill in all fields';
+          _passwordError = 'Please fill in all fields';
+        });
+        return;
+      }
+      if (email.isEmpty) {
+        setState(() => _emailError = 'Please fill in all fields');
+        return;
+      }
+      if (password.isEmpty) {
+        setState(() => _passwordError = 'Please fill in all fields');
+        return;
+      }
+
+      final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+$');
+      if (!emailRegex.hasMatch(email)) {
+        setState(() => _emailError = 'Enter a valid email');
+        return;
+      }
+
       await ref.read(authControllerProvider.notifier).login(email, password);
-      // Check if login was successful and prompt for biometrics
       if (ref.read(authControllerProvider).status == AuthStatus.authenticated) {
         _promptBiometrics();
       }
@@ -220,6 +307,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
     final authState = ref.watch(authControllerProvider);
     final size = MediaQuery.of(context).size;
 
+    ref.listen<AuthState>(authControllerProvider, (previous, next) {
+      if (next.error != null && next.error != previous?.error) {
+        _showAuthError(next.error!);
+      }
+    });
+
     return Scaffold(
       backgroundColor: const Color(0xFF050510),
       body: Stack(
@@ -321,7 +414,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
         ),
         const SizedBox(height: 20),
         const Text(
-          'FitTracker ',
+          'FitTracker',
           style: TextStyle(
             color: Colors.white,
             fontSize: 32,
@@ -393,13 +486,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
   }
 
   Widget _buildInputSection(AuthState authState) {
+    // ── OTP verification step (shown after OTP is sent during signup) ──
+    if (!_isLogin && _showSignupOtp) {
+      return _buildOtpVerifyPanel();
+    }
+
     return Column(
       children: [
         if (!_isLogin) ...[
           _buildGlassField(_nameCtrl, 'Full Name', Icons.person_outline_rounded),
           const SizedBox(height: 16),
         ],
-        _buildGlassField(_emailCtrl, 'Email Address', Icons.alternate_email_rounded),
+        _buildGlassField(
+          _emailCtrl, 
+          'Email Address', 
+          Icons.alternate_email_rounded,
+          errorText: _emailError,
+        ),
         const SizedBox(height: 16),
         _buildGlassField(
           _passwordCtrl, 
@@ -407,6 +510,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
           Icons.lock_outline_rounded, 
           obscure: _obscurePassword,
           onSuffix: () => setState(() => _obscurePassword = !_obscurePassword),
+          errorText: _passwordError,
         ),
         if (_isLogin)
           Align(
@@ -426,29 +530,242 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
     );
   }
 
-  Widget _buildGlassField(TextEditingController ctrl, String label, IconData icon, {bool obscure = false, VoidCallback? onSuffix}) {
+  Widget _buildOtpVerifyPanel() {
     return Container(
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        color: AppColors.neonCyan.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.neonCyan.withValues(alpha: 0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.neonCyan.withValues(alpha: 0.05),
+            blurRadius: 30,
+            spreadRadius: 2,
+          ),
+        ],
       ),
-      child: TextField(
-        controller: ctrl,
-        obscureText: obscure,
-        style: const TextStyle(color: Colors.white, fontSize: 14),
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 12),
-          prefixIcon: Icon(icon, color: AppColors.neonCyan, size: 20),
-          suffixIcon: onSuffix != null 
-            ? IconButton(icon: Icon(obscure ? Icons.visibility_off_rounded : Icons.visibility_rounded, color: Colors.white38, size: 18), onPressed: onSuffix)
-            : null,
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.neonCyan.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.mark_email_read_rounded, color: AppColors.neonCyan, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Check Your Email',
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'OTP sent to ${_emailCtrl.text.trim()}',
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 11),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // OTP label
+          Text(
+            'ENTER 6-DIGIT OTP',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.35),
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.5,
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // OTP input field
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.03),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: _otpError != null
+                    ? AppColors.error.withValues(alpha: 0.5)
+                    : AppColors.neonCyan.withValues(alpha: 0.2),
+              ),
+            ),
+            child: TextField(
+              controller: _signupOtpCtrl,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              style: const TextStyle(
+                color: AppColors.neonCyan,
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 8,
+              ),
+              textAlign: TextAlign.center,
+              decoration: InputDecoration(
+                counterText: '',
+                hintText: '• • • • • •',
+                hintStyle: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.15),
+                  fontSize: 18,
+                  letterSpacing: 6,
+                ),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              ),
+              onChanged: (_) => setState(() => _otpError = null),
+            ),
+          ),
+
+          // Error message
+          if (_otpError != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 14),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _otpError!,
+                    style: const TextStyle(color: AppColors.error, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ],
+
+          const SizedBox(height: 20),
+
+          // Verify button
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton(
+              onPressed: _otpLoading ? null : _verifySignupOtp,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.neonCyan,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              child: _otpLoading
+                  ? const SizedBox(width: 20, height: 20,
+                      child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2))
+                  : const Text(
+                      'VERIFY & CREATE ACCOUNT',
+                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.5),
+                    ),
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          // Resend + Back row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              TextButton.icon(
+                onPressed: _otpLoading
+                    ? null
+                    : () {
+                        setState(() {
+                          _showSignupOtp = false;
+                          _signupOtpCtrl.clear();
+                          _otpError = null;
+                        });
+                      },
+                icon: const Icon(Icons.arrow_back_rounded, size: 14, color: Colors.white38),
+                label: const Text('Back', style: TextStyle(color: Colors.white38, fontSize: 12)),
+              ),
+              TextButton.icon(
+                onPressed: _otpLoading
+                    ? null
+                    : () {
+                        _signupOtpCtrl.clear();
+                        setState(() { _otpLoading = true; _otpError = null; });
+                        _sendSignupOtpAsync(
+                          _nameCtrl.text.trim(),
+                          _emailCtrl.text.trim(),
+                          _passwordCtrl.text.trim(),
+                          _wantsAdmin ? 'admin' : 'user',
+                        );
+                      },
+                icon: const Icon(Icons.refresh_rounded, size: 14, color: AppColors.neonCyan),
+                label: const Text('Resend OTP', style: TextStyle(color: AppColors.neonCyan, fontSize: 12)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGlassField(
+    TextEditingController ctrl, 
+    String label, 
+    IconData icon, {
+    bool obscure = false, 
+    VoidCallback? onSuffix,
+    String? errorText,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+          ),
+          child: TextField(
+            controller: ctrl,
+            obscureText: obscure,
+            style: const TextStyle(color: Colors.white, fontSize: 14),
+            decoration: InputDecoration(
+              labelText: label,
+              labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 12),
+              prefixIcon: Icon(icon, color: AppColors.neonCyan, size: 20),
+              suffixIcon: onSuffix != null 
+                ? IconButton(icon: Icon(obscure ? Icons.visibility_off_rounded : Icons.visibility_rounded, color: Colors.white38, size: 18), onPressed: onSuffix)
+                : null,
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+            onChanged: (val) {
+              setState(() {
+                if (label.contains('Email')) {
+                  _emailError = null;
+                }
+                if (label.contains('Password')) {
+                  _passwordError = null;
+                }
+              });
+            },
+          ),
         ),
-        onChanged: (_) => setState(() {}),
-      ),
+        if (errorText != null) ...[
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.only(left: 8.0),
+            child: Text(
+              errorText,
+              style: const TextStyle(color: AppColors.error, fontSize: 12),
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -486,6 +803,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
 
   Widget _buildPrimaryAction(AuthState authState) {
     final bool loading = authState.isLoading || _otpLoading;
+
+    // During OTP step, the verify button is inside the OTP panel — hide this
+    if (!_isLogin && _showSignupOtp) return const SizedBox.shrink();
 
     return Container(
       width: double.infinity,
@@ -640,7 +960,16 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
     }
     setState(() { _isLoading = true; _error = null; });
     try {
-      await MongoDbService.forgotPassword(email);
+      final msg = await MongoDbService.forgotPassword(email);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg),
+            backgroundColor: AppColors.success,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       setState(() { _isLoading = false; _step = 1; });
     } catch (e) {
       setState(() { _isLoading = false; _error = e.toString().replaceAll('Exception: ', ''); });

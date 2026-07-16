@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import '../core/constants.dart';
 import '../controllers/admin_controller.dart';
 import '../models/user_model.dart';
@@ -19,7 +20,62 @@ class UserManagementScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Users', style: Theme.of(context).textTheme.displayMedium),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('Users', style: Theme.of(context).textTheme.displayMedium),
+                  ),
+                  TextButton.icon(
+                    onPressed: () async {
+                      final picked = await showDateRangePicker(
+                        context: context,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2030),
+                        helpText: 'Select range',
+                        fieldStartHintText: 'dd/mm/yyyy',
+                        fieldEndHintText: 'dd/mm/yyyy',
+                        fieldStartLabelText: 'Start Date',
+                        fieldEndLabelText: 'End Date',
+                        builder: (context, child) {
+                          // Force en_GB locale so date fields show dd/mm/yyyy
+                          return Localizations.override(
+                            context: context,
+                            locale: const Locale('en', 'GB'),
+                            delegates: const [
+                              GlobalMaterialLocalizations.delegate,
+                              GlobalWidgetsLocalizations.delegate,
+                              GlobalCupertinoLocalizations.delegate,
+                            ],
+                            child: Theme(
+                              data: Theme.of(context).copyWith(
+                                colorScheme: const ColorScheme.dark(
+                                  primary: AppColors.neonCyan,
+                                  surface: Color(0xFF0F0F25),
+                                  onSurface: Colors.white,
+                                ),
+                              ),
+                              child: child!,
+                            ),
+                          );
+                        },
+                      );
+                      if (picked != null) {
+                        ref.read(adminControllerProvider.notifier).setDateFilter(picked.start, picked.end);
+                      }
+                    },
+                    icon: const Icon(Icons.date_range_rounded, color: AppColors.neonCyan, size: 16),
+                    label: const Text('Filter Date', style: TextStyle(color: AppColors.neonCyan, fontSize: 12)),
+                  ),
+                  if (ref.watch(adminControllerProvider.notifier).hasDateFilter) ...[
+                    IconButton(
+                      icon: const Icon(Icons.clear, color: AppColors.error, size: 16),
+                      onPressed: () {
+                        ref.read(adminControllerProvider.notifier).clearDateFilter();
+                      },
+                    ),
+                  ],
+                ],
+              ),
               const SizedBox(height: 4),
               Text('${admin.totalUsers} total · ${admin.activeUsers} active', style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: AppSizes.lg),
@@ -184,6 +240,18 @@ class UserManagementScreen extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: AppSizes.md),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _showDeleteUserDialog(context, user, controller);
+                },
+                icon: const Icon(Icons.delete_forever, size: 16, color: Colors.white),
+                label: const Text('Delete User', style: TextStyle(color: Colors.white)),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+              ),
+            ),
           ],
         ),
       ),
@@ -239,6 +307,33 @@ class UserManagementScreen extends ConsumerWidget {
             },
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
             child: const Text('Confirm Deactivate'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteUserDialog(BuildContext context, UserModel user, AdminController controller) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(context).cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(children: [
+          Icon(Icons.warning_amber_rounded, color: AppColors.error, size: 20),
+          SizedBox(width: 8),
+          Text('Delete User', style: TextStyle(color: Colors.white, fontSize: 16)),
+        ]),
+        content: Text('Are you sure you want to permanently delete user ${user.name}? This action cannot be undone.', style: TextStyle(color: Theme.of(context).textTheme.bodyMedium!.color!, fontSize: 13)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: Theme.of(context).textTheme.bodySmall!.color!))),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              controller.deleteUser(user.id);
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+            child: const Text('Delete'),
           ),
         ],
       ),

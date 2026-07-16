@@ -4,12 +4,28 @@ const { auth, adminOnly } = require('../middleware/auth');
 
 const router = express.Router();
 
-// GET /api/settings — Get settings (creates defaults if not exist)
+// GET /api/settings/public — Level thresholds (no auth, accessible by users)
+router.get('/public', async (req, res) => {
+  try {
+    const settings = await Settings.findOne({ key: 'global' });
+    res.json({
+      silverMinPoints: settings?.silverMinPoints ?? 2000,
+      goldMinPoints: settings?.goldMinPoints ?? 5000,
+      bronzeBenefits: settings?.bronzeBenefits ?? 'Basic tracking, Community access',
+      silverBenefits: settings?.silverBenefits ?? 'AI insights, Priority support',
+      goldBenefits: settings?.goldBenefits ?? 'All features, Custom plans, 2x points',
+    });
+  } catch (err) {
+    // Return safe defaults on DB error
+    res.json({ silverMinPoints: 2000, goldMinPoints: 5000 });
+  }
+});
+
+// GET /api/settings — Get settings (admin only)
 router.get('/', auth, adminOnly, async (req, res) => {
   try {
     let settings = await Settings.findOne({ key: 'global' });
     if (!settings) {
-      // Create default settings
       settings = new Settings({
         key: 'global',
         premiumPlans: [
@@ -26,7 +42,7 @@ router.get('/', auth, adminOnly, async (req, res) => {
   }
 });
 
-// PUT /api/settings — Update settings
+// PUT /api/settings — Update settings (admin only)
 router.put('/', auth, adminOnly, async (req, res) => {
   try {
     const updates = req.body;

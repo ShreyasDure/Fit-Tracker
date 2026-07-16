@@ -2,11 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:math' as math;
 import 'dart:ui';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../core/constants.dart';
 import '../controllers/user_controller.dart';
-import '../widgets/stat_card.dart';
+import '../controllers/auth_controller.dart';
+import '../services/mongodb_service.dart';
 import 'exercise_library_screen.dart';
+import 'home_screen.dart';
+import 'points_screen.dart';
 
 class WorkoutScreen extends ConsumerStatefulWidget {
   const WorkoutScreen({super.key});
@@ -20,12 +25,25 @@ class _WorkoutScreenState extends ConsumerState<WorkoutScreen> with TickerProvid
   late AnimationController _pulseController;
   late AnimationController _hudController;
 
+  bool get _isTesting {
+    try {
+      return !kIsWeb && Platform.environment.containsKey('FLUTTER_TEST');
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    _timerController = AnimationController(vsync: this, duration: const Duration(seconds: 60))..repeat();
-    _pulseController = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat(reverse: true);
-    _hudController = AnimationController(vsync: this, duration: const Duration(seconds: 10))..repeat();
+    _timerController = AnimationController(vsync: this, duration: const Duration(seconds: 60));
+    _pulseController = AnimationController(vsync: this, duration: const Duration(seconds: 2));
+    _hudController = AnimationController(vsync: this, duration: const Duration(seconds: 10));
+    if (!_isTesting) {
+      _timerController.repeat();
+      _pulseController.repeat(reverse: true);
+      _hudController.repeat();
+    }
   }
 
   @override
@@ -70,11 +88,6 @@ class _WorkoutScreenState extends ConsumerState<WorkoutScreen> with TickerProvid
                         
                         // 5. Metrics Dashboard (Grid)
                         _buildMetricsGrid(workout),
-                        
-                        const SizedBox(height: 30),
-                        
-                        // 6. AI Coaching Insights
-                        _buildAIWorkoutInsights(),
                         
                         const SizedBox(height: 120), // Bottom controls padding
                       ],
@@ -132,20 +145,20 @@ class _WorkoutScreenState extends ConsumerState<WorkoutScreen> with TickerProvid
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'WORKOUT HUB',
+                'Workout Hub',
                 style: TextStyle(
                   color: AppColors.neonCyan,
-                  fontSize: 10,
+                  fontSize: 12,
                   fontWeight: FontWeight.w900,
-                  letterSpacing: 2,
+                  letterSpacing: 0.5,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
-                workout.isActive ? 'PUSH YOUR LIMITS 🚀' : 'READY TO START? 💪',
+                workout.isActive ? 'Push Your Limits 🚀' : 'Ready To Start? 💪',
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 22,
+                  fontSize: 26,
                   fontWeight: FontWeight.w900,
                   letterSpacing: -0.5,
                 ),
@@ -363,45 +376,7 @@ class _WorkoutScreenState extends ConsumerState<WorkoutScreen> with TickerProvid
     );
   }
 
-  Widget _buildAIWorkoutInsights() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppColors.neonCyan.withValues(alpha: 0.05), AppColors.neonPurple.withValues(alpha: 0.05)],
-        ),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: AppColors.neonCyan.withValues(alpha: 0.15)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: AppColors.neonCyan.withValues(alpha: 0.1), shape: BoxShape.circle),
-            child: const Icon(Icons.auto_awesome, color: AppColors.neonCyan, size: 24),
-          ),
-          const SizedBox(width: 20),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'AI COACH INSIGHT',
-                  style: TextStyle(color: AppColors.neonCyan, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.5),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  'Push 10% harder for better endurance.',
-                  style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   Widget _buildFloatingControls(WorkoutState workout, WorkoutController controller) {
     return Positioned(
@@ -471,13 +446,155 @@ class _WorkoutScreenState extends ConsumerState<WorkoutScreen> with TickerProvid
                 _buildControlButton(
                   icon: Icons.stop_rounded,
                   color: AppColors.error,
-                  onTap: () => controller.reset(),
+                  onTap: () {
+                    if (workout.elapsedSeconds > 0) {
+                      _showSaveWorkoutDialog(workout, controller);
+                    } else {
+                      controller.reset();
+                    }
+                  },
                 ),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  void _showSaveWorkoutDialog(WorkoutState workout, WorkoutController controller) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF0F0F25),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: const BorderSide(color: AppColors.neonCyan, width: 1.5),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.emoji_events_rounded, color: AppColors.neonYellow, size: 24),
+              SizedBox(width: 8),
+              Text('Workout Completed!', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Type: ${workout.selectedType.name.toUpperCase()}',
+                style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Duration: ${workout.formattedDuration}',
+                style: const TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+              if (!workout.isGym) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Distance: ${workout.distance} km',
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Avg Pace: ${workout.pace} min/km',
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+              ],
+              const SizedBox(height: 4),
+              Text(
+                'Calories burned: ${workout.calories} kcal',
+                style: const TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Would you like to save this workout and claim your points?',
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                controller.reset();
+              },
+              child: const Text('Discard', style: TextStyle(color: AppColors.error)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                
+                // Show loading indicator
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Row(
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                        ),
+                        SizedBox(width: 12),
+                        Text('Saving workout to MongoDB...'),
+                      ],
+                    ),
+                    backgroundColor: AppColors.neonCyan,
+                    duration: Duration(seconds: 10),
+                  ),
+                );
+
+                try {
+                  final result = await MongoDbService.saveWorkout(
+                    type: workout.selectedType.name,
+                    duration: workout.elapsedSeconds,
+                    distance: workout.distance,
+                    calories: workout.calories,
+                    heartRateAvg: workout.heartRate,
+                    pace: workout.pace,
+                  );
+
+                  final pointsEarned = result['pointsEarned'] ?? 0;
+                  
+                  ref.invalidate(userActivitiesProvider);
+                  ref.invalidate(workoutHistoryProvider);
+                  await ref.read(authControllerProvider.notifier).refreshProfile();
+
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Workout saved! +$pointsEarned points earned!'),
+                      backgroundColor: AppColors.neonGreen,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to save workout: $e'),
+                      backgroundColor: AppColors.error,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                } finally {
+                  controller.reset();
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.neonGreen,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Save & Finish', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
     );
   }
 

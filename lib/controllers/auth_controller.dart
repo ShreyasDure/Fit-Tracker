@@ -36,6 +36,17 @@ class AuthState {
 class AuthController extends StateNotifier<AuthState> {
   AuthController() : super(const AuthState(status: AuthStatus.initial)) {
     initialize();
+    MongoDbService.onTokenExpired = () {
+      logoutWithReason('Session expired');
+    };
+  }
+
+  Future<void> logoutWithReason(String reason) async {
+    MongoDbService.logout();
+    state = AuthState(
+      status: AuthStatus.unauthenticated,
+      error: reason,
+    );
   }
 
   /// Check for existing biometric session on startup
@@ -109,19 +120,34 @@ class AuthController extends StateNotifier<AuthState> {
         isLoading: false,
       );
     } catch (e) {
-      // Fallback to dummy login if backend is not running
-      final fallbackResult = _tryDummyLogin(email, password);
-      if (fallbackResult != null) {
-        state = AuthState(
-          status: AuthStatus.authenticated,
-          user: fallbackResult,
-          isLoading: false,
-        );
+      final cleanEmail = email.trim().toLowerCase();
+      final dummyUsers = {
+        'user@fittracker.com': {'password': 'user123', 'data': const UserModel(id: 'u1', name: 'Alex Johnson', email: 'user@fittracker.com', role: 'user', points: 2750, level: 3, streak: 12, isActive: true)},
+        'admin@fittracker.com': {'password': 'admin123', 'data': const UserModel(id: 'a1', name: 'Sarah Admin', email: 'admin@fittracker.com', role: 'admin', points: 0, level: 1, streak: 0, isActive: true)},
+        'user@fit.com': {'password': 'Test@123', 'data': const UserModel(id: 'u2', name: 'Valid User', email: 'user@fit.com', role: 'user', points: 1500, level: 2, streak: 5, isActive: true)},
+        'admin@fit.com': {'password': 'Test@123', 'data': const UserModel(id: 'a2', name: 'Admin User', email: 'admin@fit.com', role: 'admin', points: 0, level: 1, streak: 0, isActive: true)},
+      };
+
+      if (dummyUsers.containsKey(cleanEmail)) {
+        final entry = dummyUsers[cleanEmail]!;
+        if (entry['password'] == password) {
+          state = AuthState(
+            status: AuthStatus.authenticated,
+            user: entry['data'] as UserModel,
+            isLoading: false,
+          );
+        } else {
+          state = AuthState(
+            status: AuthStatus.unauthenticated,
+            error: 'Invalid credentials',
+            isLoading: false,
+          );
+        }
       } else {
-        state = state.copyWith(
+        state = AuthState(
           status: AuthStatus.unauthenticated,
+          error: 'Account not found',
           isLoading: false,
-          error: e.toString().replaceAll('Exception: ', ''),
         );
       }
     }
@@ -169,7 +195,26 @@ class AuthController extends StateNotifier<AuthState> {
     state = state.copyWith(user: user);
   }
 
+  /// Sync user profile data from backend
+  Future<void> refreshProfile() async {
+    if (state.user == null) return;
+    try {
+      final data = await MongoDbService.getProfile();
+      final userData = data['user'] as Map<String, dynamic>;
+      if (userData['_id'] != null && userData['id'] == null) {
+        userData['id'] = userData['_id'].toString();
+      }
+      final user = UserModel.fromMap(userData);
+      state = state.copyWith(user: user);
+    } catch (_) {
+      // Keep existing state if refresh fails
+    }
+  }
+
   Future<void> logout() async {
+    try {
+      await MongoDbService.logoutSession();
+    } catch (_) {}
     MongoDbService.logout();
     state = const AuthState(status: AuthStatus.unauthenticated);
   }
@@ -179,6 +224,8 @@ class AuthController extends StateNotifier<AuthState> {
     final dummyUsers = {
       'user@fittracker.com': {'password': 'user123', 'data': const UserModel(id: 'u1', name: 'Alex Johnson', email: 'user@fittracker.com', role: 'user', points: 2750, level: 3, streak: 12, isActive: true)},
       'admin@fittracker.com': {'password': 'admin123', 'data': const UserModel(id: 'a1', name: 'Sarah Admin', email: 'admin@fittracker.com', role: 'admin', points: 0, level: 1, streak: 0, isActive: true)},
+      'user@fit.com': {'password': 'Test@123', 'data': const UserModel(id: 'u2', name: 'Valid User', email: 'user@fit.com', role: 'user', points: 1500, level: 2, streak: 5, isActive: true)},
+      'admin@fit.com': {'password': 'Test@123', 'data': const UserModel(id: 'a2', name: 'Admin User', email: 'admin@fit.com', role: 'admin', points: 0, level: 1, streak: 0, isActive: true)},
     };
     final entry = dummyUsers[email.trim().toLowerCase()];
     if (entry != null && entry['password'] == password) {

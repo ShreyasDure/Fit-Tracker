@@ -9,6 +9,8 @@ class UserModel {
   final bool isActive;
   final bool pushNotifications;
   final bool emailReminders;
+  final bool isOnline;
+  final DateTime? lastActive;
 
   const UserModel({
     required this.id,
@@ -21,8 +23,11 @@ class UserModel {
     this.isActive = true,
     this.pushNotifications = true,
     this.emailReminders = true,
+    this.isOnline = false,
+    this.lastActive,
   });
 
+  // ── Static thresholds (backward compat fallbacks) ──
   String get levelName {
     if (points >= 5000) return 'Gold';
     if (points >= 2000) return 'Silver';
@@ -41,6 +46,26 @@ class UserModel {
     return 2000 - points;
   }
 
+  // ── Dynamic threshold-aware methods (uses MongoDB settings) ──
+
+  String levelNameWith(int silverMin, int goldMin) {
+    if (points >= goldMin) return 'Gold';
+    if (points >= silverMin) return 'Silver';
+    return 'Bronze';
+  }
+
+  double levelProgressWith(int silverMin, int goldMin) {
+    if (points >= goldMin) return 1.0;
+    if (points >= silverMin) return (points - silverMin) / (goldMin - silverMin);
+    return silverMin > 0 ? points / silverMin : 0.0;
+  }
+
+  int pointsToNextLevelWith(int silverMin, int goldMin) {
+    if (points >= goldMin) return 0;
+    if (points >= silverMin) return goldMin - points;
+    return silverMin - points;
+  }
+
   UserModel copyWith({
     String? id,
     String? name,
@@ -52,6 +77,8 @@ class UserModel {
     bool? isActive,
     bool? pushNotifications,
     bool? emailReminders,
+    bool? isOnline,
+    DateTime? lastActive,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -64,6 +91,8 @@ class UserModel {
       isActive: isActive ?? this.isActive,
       pushNotifications: pushNotifications ?? this.pushNotifications,
       emailReminders: emailReminders ?? this.emailReminders,
+      isOnline: isOnline ?? this.isOnline,
+      lastActive: lastActive ?? this.lastActive,
     );
   }
 
@@ -79,6 +108,8 @@ class UserModel {
       'isActive': isActive,
       'pushNotifications': pushNotifications,
       'emailReminders': emailReminders,
+      'isOnline': isOnline,
+      'lastActive': lastActive?.toIso8601String(),
     };
   }
 
@@ -88,12 +119,14 @@ class UserModel {
       name: map['name'] ?? '',
       email: map['email'] ?? '',
       role: map['role'] ?? 'user',
-      points: map['points'] ?? 0,
-      level: map['level'] ?? 1,
-      streak: map['streak'] ?? 0,
+      points: (map['points'] as num?)?.toInt() ?? 0,
+      level: (map['level'] as num?)?.toInt() ?? 1,
+      streak: (map['streak'] as num?)?.toInt() ?? 0,
       isActive: map['isActive'] ?? true,
       pushNotifications: map['pushNotifications'] ?? true,
       emailReminders: map['emailReminders'] ?? true,
+      isOnline: map['isOnline'] ?? false,
+      lastActive: map['lastActive'] != null ? DateTime.tryParse(map['lastActive']) : null,
     );
   }
 }

@@ -6,6 +6,14 @@ import '../services/mongodb_service.dart';
 class StatsScreen extends StatelessWidget {
   const StatsScreen({super.key});
 
+  /// Converts "yyyy-MM-dd" → "dd/MM/yyyy"
+  String _fmtDate(String iso) {
+    if (iso.length < 10) return iso;
+    final parts = iso.substring(0, 10).split('-');
+    if (parts.length != 3) return iso;
+    return '${parts[2]}/${parts[1]}/${parts[0]}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -21,7 +29,31 @@ class StatsScreen extends StatelessWidget {
           }
           final history = snapshot.data ?? [];
           if (history.isEmpty) {
-            return const Center(child: Text('No activity data yet.'));
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(AppSizes.lg),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.analytics_outlined,
+                      size: 64,
+                      color: AppColors.textSecondary,
+                    ),
+                    const SizedBox(height: AppSizes.md),
+                    const Text(
+                      'No data yet, start tracking!',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            );
           }
 
           final spots = <FlSpot>[];
@@ -35,9 +67,9 @@ class StatsScreen extends StatelessWidget {
           }
 
           return ListView(
-            padding: EdgeInsets.all(AppSizes.lg),
+            padding: const EdgeInsets.all(AppSizes.lg),
             children: [
-              _buildChartCard(context, 'Weekly Steps', spots, AppColors.neonCyan, history),
+              _buildBarChartCard(context, 'Weekly Steps', spots, AppColors.neonCyan, history),
               const SizedBox(height: AppSizes.lg),
               _buildChartCard(context, 'Calories Trend', calSpots, AppColors.neonOrange, history),
               const SizedBox(height: AppSizes.lg),
@@ -49,10 +81,87 @@ class StatsScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildBarChartCard(BuildContext context, String title, List<FlSpot> spots, Color color, List<Map<String, dynamic>> history) {
+    return Container(
+      height: 250,
+      padding: const EdgeInsets.all(AppSizes.md),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(color: color)),
+          const SizedBox(height: AppSizes.lg),
+          Expanded(
+            child: BarChart(
+              BarChartData(
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  getDrawingHorizontalLine: (val) => FlLine(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    strokeWidth: 1,
+                  ),
+                ),
+                titlesData: FlTitlesData(
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      getTitlesWidget: (v, _) {
+                        int index = v.toInt();
+                        if (index >= 0 && index < history.length) {
+                          String dateStr = history[index]['date'] as String;
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text(
+                              _fmtDate(dateStr),
+                              style: TextStyle(
+                                color: Theme.of(context).textTheme.bodySmall!.color!,
+                                fontSize: 8,
+                              ),
+                            ),
+                          );
+                        }
+                        return const Text('');
+                      },
+                    ),
+                  ),
+                  leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                ),
+                borderData: FlBorderData(show: false),
+                barGroups: spots.map((spot) {
+                  return BarChartGroupData(
+                    x: spot.x.toInt(),
+                    barRods: [
+                      BarChartRodData(
+                        toY: spot.y,
+                        color: color,
+                        width: 16,
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(4),
+                          topRight: Radius.circular(4),
+                        ),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildChartCard(BuildContext context, String title, List<FlSpot> spots, Color color, List<Map<String, dynamic>> history) {
     return Container(
       height: 250,
-      padding: EdgeInsets.all(AppSizes.md),
+      padding: const EdgeInsets.all(AppSizes.md),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(AppSizes.cardRadius),
@@ -73,15 +182,15 @@ class StatsScreen extends StatelessWidget {
                     if (index >= 0 && index < history.length) {
                       String dateStr = history[index]['date'] as String;
                       return Padding(
-                        padding: EdgeInsets.only(top: 8.0),
-                        child: Text(dateStr.substring(5), style: TextStyle(color: Theme.of(context).textTheme.bodySmall!.color!, fontSize: 10)),
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Text(_fmtDate(dateStr), style: TextStyle(color: Theme.of(context).textTheme.bodySmall!.color!, fontSize: 8)),
                       );
                     }
                     return const Text('');
                   })),
-                  leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                 ),
                 borderData: FlBorderData(show: false),
                 lineBarsData: [

@@ -4,6 +4,8 @@ import '../core/constants.dart';
 import '../services/mongodb_service.dart';
 import '../services/health_service.dart';
 import '../controllers/auth_controller.dart';
+import 'home_screen.dart';
+import 'points_screen.dart';
 
 // User Challenge Model
 class UserChallengeItem {
@@ -64,6 +66,9 @@ class UserChallengesNotifier extends StateNotifier<AsyncValue<List<UserChallenge
     try {
       await MongoDbService.skipUserChallenge(id);
       state = AsyncValue.data(state.value!.where((c) => c.id != id).toList());
+      ref.invalidate(userActivitiesProvider);
+      ref.invalidate(workoutHistoryProvider);
+      ref.read(authControllerProvider.notifier).refreshProfile();
     } catch (e) {
       // Show error
     }
@@ -77,6 +82,9 @@ class UserChallengesNotifier extends StateNotifier<AsyncValue<List<UserChallenge
       if (state.value != null) {
         state = AsyncValue.data([...state.value!, UserChallengeItem.fromJson(newChallenge)]);
       }
+      ref.invalidate(userActivitiesProvider);
+      ref.invalidate(workoutHistoryProvider);
+      ref.read(authControllerProvider.notifier).refreshProfile();
     } catch (e) {
       rethrow;
     }
@@ -94,6 +102,9 @@ class UserChallengesNotifier extends StateNotifier<AsyncValue<List<UserChallenge
       if (state.value != null) {
         state = AsyncValue.data([...state.value!, UserChallengeItem.fromJson(newChallenge)]);
       }
+      ref.invalidate(userActivitiesProvider);
+      ref.invalidate(workoutHistoryProvider);
+      ref.read(authControllerProvider.notifier).refreshProfile();
     } catch (e) {
       rethrow;
     }
@@ -113,6 +124,9 @@ class UserChallengesNotifier extends StateNotifier<AsyncValue<List<UserChallenge
         if (user != null) {
           authCtrl.updateUser(user.copyWith(points: user.points + updatedItem.reward));
         }
+        ref.invalidate(userActivitiesProvider);
+        ref.invalidate(workoutHistoryProvider);
+        authCtrl.refreshProfile();
       }
     } catch (e) {
       // Keep UI stable if progress sync fails temporarily.

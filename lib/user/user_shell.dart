@@ -8,7 +8,7 @@ import 'workout_screen.dart';
 import 'ai_screen.dart';
 import 'explore_screen.dart';
 import 'profile_screen.dart';
-
+import '../services/connectivity_service.dart';
 class UserShell extends ConsumerStatefulWidget {
   const UserShell({super.key});
 
@@ -25,6 +25,19 @@ class _UserShellState extends ConsumerState<UserShell> with WidgetsBindingObserv
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkBmiUpdate();
+      // If initial state is offline, show offline SnackBar
+      final isOnline = ref.read(connectivityProvider);
+      if (!isOnline) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('No internet connection'),
+            backgroundColor: AppColors.error,
+            duration: const Duration(days: 365),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     });
   }
 
@@ -39,6 +52,10 @@ class _UserShellState extends ConsumerState<UserShell> with WidgetsBindingObserv
     if (state == AppLifecycleState.resumed) {
       // Trigger sync on resume
       ref.read(healthControllerProvider.notifier).onAppResume();
+      // Also force sync if online
+      if (ref.read(connectivityProvider)) {
+        ref.read(connectivityProvider.notifier).forceSync();
+      }
     }
   }
 
@@ -90,6 +107,31 @@ class _UserShellState extends ConsumerState<UserShell> with WidgetsBindingObserv
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<bool>(connectivityProvider, (previous, next) {
+      if (next == false) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('No internet connection'),
+            backgroundColor: AppColors.error,
+            duration: const Duration(days: 365),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else if (previous == false && next == true) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ref.read(connectivityProvider.notifier).forceSync();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Connection restored'),
+            backgroundColor: AppColors.success,
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
+
     return Scaffold(
       resizeToAvoidBottomInset: false,
       body: IndexedStack(

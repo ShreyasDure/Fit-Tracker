@@ -1,5 +1,6 @@
 const express = require('express');
 const { auth } = require('../middleware/auth');
+const { logActivity } = require('../services/activityService');
 
 const router = express.Router();
 
@@ -37,6 +38,16 @@ router.post('/insight', auth, async (req, res) => {
 
     // Cache the result
     insightCache.set(userId, { insight, timestamp: Date.now() });
+
+    // Log Activity (Non-blocking)
+    logActivity({
+      type: 'AI_INSIGHT',
+      title: 'Generated AI Health Insight',
+      description: `AI Coach analyzed daily stats and generated insights.`,
+      userId: req.user._id,
+      userName: req.user.name,
+      category: 'system'
+    }).catch(err => console.error('Failed to log AI insight activity:', err));
 
     res.json({ insight, cached: false });
   } catch (err) {
@@ -321,7 +332,7 @@ function getFallbackDiet(category) {
 router.post('/chat', auth, async (req, res) => {
   try {
     const { message, userData } = req.body;
-    const { name, steps, calories, activeMinutes, goal } = userData || {};
+    const { name, steps, calories, activeMinutes, goal, weather } = userData || {};
     const goalPercent = goal > 0 ? Math.round((steps / goal) * 100) : 0;
     const firstName = (name || 'Champ').split(' ')[0];
 
@@ -329,11 +340,21 @@ router.post('/chat', auth, async (req, res) => {
     let reply;
 
     if (apiKey && apiKey !== 'YOUR_GEMINI_API_KEY_HERE') {
-      const chatPrompt = buildChatPrompt(firstName, message, steps, calories, activeMinutes, goal, goalPercent);
+      const chatPrompt = buildChatPrompt(firstName, message, steps, calories, activeMinutes, goal, goalPercent, weather);
       reply = await callGemini(apiKey, chatPrompt);
     } else {
-      reply = generateLocalChatReply(firstName, message, steps, calories, activeMinutes, goal, goalPercent);
+      reply = generateLocalChatReply(firstName, message, steps, calories, activeMinutes, goal, goalPercent, weather);
     }
+
+    // Log Activity (Non-blocking)
+    logActivity({
+      type: 'AI_CHAT',
+      title: 'Consulted AI Coach',
+      description: `Asked Coach: "${message.substring(0, 35)}${message.length > 35 ? '...' : ''}"`,
+      userId: req.user._id,
+      userName: req.user.name,
+      category: 'system'
+    }).catch(err => console.error('Failed to log AI chat activity:', err));
 
     res.json({ reply });
   } catch (err) {
@@ -341,19 +362,23 @@ router.post('/chat', auth, async (req, res) => {
     const { message, userData } = req.body;
     const firstName = ((userData?.name) || 'Champ').split(' ')[0];
     const goalPercent = (userData?.goal > 0) ? Math.round((userData?.steps / userData?.goal) * 100) : 0;
-    const reply = generateLocalChatReply(firstName, message, userData?.steps || 0, userData?.calories || 0, userData?.activeMinutes || 0, userData?.goal || 10000, goalPercent);
+    const reply = generateLocalChatReply(firstName, message, userData?.steps || 0, userData?.calories || 0, userData?.activeMinutes || 0, userData?.goal || 10000, goalPercent, userData?.weather);
     res.json({ reply });
   }
 });
 
-function buildChatPrompt(name, userMessage, steps, calories, activeMinutes, goal, goalPercent) {
+function buildChatPrompt(name, userMessage, steps, calories, activeMinutes, goal, goalPercent, weather) {
+  let weatherText = '';
+  if (weather && weather.temp !== undefined) {
+    weatherText = `\n- Weather: ${weather.temp}°C, ${weather.condition}, Humidity: ${weather.humidity}%, Wind: ${weather.windSpeed} km/h, UV Index: ${weather.uvIndex}\n- Weather Suggestion: ${weather.recommendation}`;
+  }
   return `You are FitCoach, a friendly AI fitness assistant inside FitTracker app.
 You are chatting with ${name}.
 
 Their current fitness data:
 - Steps: ${steps} / ${goal} (${goalPercent}%)
 - Calories burned: ${calories}
-- Active minutes: ${activeMinutes}
+- Active minutes: ${activeMinutes}${weatherText}
 
 User says: "${userMessage}"
 
@@ -361,7 +386,7 @@ Rules:
 - Reply in 2-3 short sentences MAX
 - Be friendly, warm, and motivational
 - Use 1-2 emojis naturally
-- Reference their data when relevant
+- Reference their data or current weather when relevant (especially if weather limits outdoor workouts)
 - If they ask about progress, use their actual numbers
 - If they feel lazy/tired, be encouraging not pushy
 - If they ask for workout tips, give specific short advice
@@ -371,10 +396,17 @@ Rules:
 }
 
 // Smart local chat fallback
-function generateLocalChatReply(name, message, steps, calories, activeMinutes, goal, goalPercent) {
+function generateLocalChatReply(name, message, steps, calories, activeMinutes, goal, goalPercent, weather) {
   const msg = message.toLowerCase();
   const firstName = name.split(' ')[0];
   const remainingSteps = Math.max(0, goal - steps);
+
+  // Weather-specific local reply
+  if (msg.includes('weather') || msg.includes('rain') || msg.includes('hot') || msg.includes('cold') || msg.includes('outside') || msg.includes('sunny')) {
+    if (weather && weather.temp !== undefined) {
+      return `It's currently ${weather.temp}°C and ${weather.condition.toLowerCase()} outside. My recommendation: ${weather.recommendation} 🌦️`;
+    }
+  }
 
   // 1. Progress & Analysis
   if (msg.includes('how am i') || msg.includes('my progress') || msg.includes('status') || msg.includes('doing')) {

@@ -4,7 +4,6 @@ import '../core/constants.dart';
 import '../controllers/admin_controller.dart';
 import '../models/points_config.dart';
 import 'levels_management_screen.dart';
-import 'premium_control_screen.dart';
 
 class PointsConfigScreen extends ConsumerStatefulWidget {
   const PointsConfigScreen({super.key});
@@ -101,26 +100,14 @@ class _PointsConfigScreenState extends ConsumerState<PointsConfigScreen> {
               ),
               const SizedBox(height: AppSizes.xxl),
               // Quick nav to sub-screens
-              Row(
-                children: [
-                  Expanded(
-                    child: _NavCard(
-                      icon: Icons.emoji_events_rounded,
-                      title: 'Levels',
-                      color: AppColors.neonPurple,
-                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LevelsManagementScreen())),
-                    ),
-                  ),
-                  const SizedBox(width: AppSizes.sm),
-                  Expanded(
-                    child: _NavCard(
-                      icon: Icons.workspace_premium_rounded,
-                      title: 'Premium',
-                      color: AppColors.neonOrange,
-                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumControlScreen())),
-                    ),
-                  ),
-                ],
+              Align(
+                alignment: Alignment.center,
+                child: _NavCard(
+                  icon: Icons.emoji_events_rounded,
+                  title: 'Manage Levels & Benefits',
+                  color: AppColors.neonPurple,
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LevelsManagementScreen())),
+                ),
               ),
             ],
           ),
@@ -180,21 +167,42 @@ class _NavCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.all(AppSizes.lg),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(AppSizes.cardRadius),
-          border: Border.all(color: color.withValues(alpha: 0.15)),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: AppSizes.sm),
-            Text(title, style: Theme.of(context).textTheme.titleSmall),
-          ],
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 320),
+      width: double.infinity,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: EdgeInsets.symmetric(horizontal: AppSizes.lg, vertical: AppSizes.xl),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor.withValues(alpha: 0.7),
+            borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+            border: Border.all(color: color.withValues(alpha: 0.3), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.15),
+                blurRadius: 15,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Icon(icon, color: color, size: 32),
+              const SizedBox(height: AppSizes.md),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

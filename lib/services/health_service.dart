@@ -19,6 +19,7 @@ class HealthData {
   final int weeklyAverageSteps;
   final int previousWeeklyAverageSteps;
   final double weeklyPercentageChange;
+  final String? sensorError;
 
   const HealthData({
     this.steps = 0,
@@ -31,6 +32,7 @@ class HealthData {
     this.weeklyAverageSteps = 0,
     this.previousWeeklyAverageSteps = 0,
     this.weeklyPercentageChange = 0,
+    this.sensorError,
   });
 
   double get stepsProgress => (steps / stepsGoal).clamp(0.0, 1.0);
@@ -43,6 +45,7 @@ class HealthData {
     int? weeklyAverageSteps,
     int? previousWeeklyAverageSteps,
     double? weeklyPercentageChange,
+    String? sensorError,
   }) {
     return HealthData(
       steps: steps ?? this.steps,
@@ -55,6 +58,7 @@ class HealthData {
       weeklyAverageSteps: weeklyAverageSteps ?? this.weeklyAverageSteps,
       previousWeeklyAverageSteps: previousWeeklyAverageSteps ?? this.previousWeeklyAverageSteps,
       weeklyPercentageChange: weeklyPercentageChange ?? this.weeklyPercentageChange,
+      sensorError: sensorError ?? this.sensorError,
     );
   }
 }
@@ -68,6 +72,10 @@ const _kDate = 'health_date';
 const _kInitialSteps = 'health_initial_steps';
 
 class HealthController extends StateNotifier<HealthData> {
+  static Stream<StepCount>? mockStepCountStream;
+  static bool? mockPermissionGranted;
+  static bool? mockSensorAvailable;
+
   HealthController() : super(const HealthData()) {
     _init();
   }
@@ -190,13 +198,40 @@ class HealthController extends StateNotifier<HealthData> {
 
   // ─── Pedometer ───
   Future<void> _startPedometer() async {
-    if (await Permission.activityRecognition.request().isGranted) {
-      _stepCountStream = Pedometer.stepCountStream.listen(
+    if (mockSensorAvailable == false) {
+      state = state.copyWith(sensorError: 'Step sensor not available');
+      return;
+    }
+
+    bool isGranted = false;
+    if (mockPermissionGranted != null) {
+      isGranted = mockPermissionGranted!;
+    } else {
+      try {
+        isGranted = await Permission.activityRecognition.request().isGranted;
+      } catch (_) {
+        isGranted = false;
+      }
+    }
+
+    if (!isGranted) {
+      state = state.copyWith(sensorError: 'Permission required for tracking');
+      return;
+    }
+
+    state = state.copyWith(sensorError: null);
+
+    try {
+      final stream = mockStepCountStream ?? Pedometer.stepCountStream;
+      _stepCountStream = stream.listen(
         _onStepCount,
         onError: (e) {
           debugPrint('Pedometer Error: $e');
+          state = state.copyWith(sensorError: 'Step sensor not available');
         },
       );
+    } catch (e) {
+      state = state.copyWith(sensorError: 'Step sensor not available');
     }
   }
 

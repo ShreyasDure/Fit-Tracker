@@ -69,6 +69,30 @@ class AdminController extends StateNotifier<AdminDashboardState> {
   // ignore: unused_field
   final Ref _ref;
 
+  DateTime? _startDate;
+  DateTime? _endDate;
+
+  bool get hasDateFilter => _startDate != null || _endDate != null;
+
+  void setDateFilter(DateTime start, DateTime end) {
+    _startDate = start;
+    _endDate = end;
+    _loadFromBackend();
+  }
+
+  void clearDateFilter() {
+    _startDate = null;
+    _endDate = null;
+    _loadFromBackend();
+  }
+
+  Future<void> deleteUser(String userId) async {
+    try {
+      await MongoDbService.deleteUser(userId);
+      _loadFromBackend();
+    } catch (_) {}
+  }
+
   /// Load real users from MongoDB backend
   Future<void> _loadFromBackend() async {
     if (!MongoDbService.isAuthenticated) {
@@ -78,7 +102,7 @@ class AdminController extends StateNotifier<AdminDashboardState> {
 
     state = state.copyWith(isLoading: true, error: null);
     try {
-      final usersData = await MongoDbService.getUsers();
+      final usersData = await MongoDbService.getUsers(startDate: _startDate, endDate: _endDate);
       final users = usersData.map((u) {
         if (u['_id'] != null && u['id'] == null) {
           u['id'] = u['_id'].toString();
@@ -89,10 +113,15 @@ class AdminController extends StateNotifier<AdminDashboardState> {
       final analytics = await MongoDbService.getAdminAnalytics();
       final logs = await MongoDbService.getAdminActivity();
 
+      // Load saved settings from MongoDB
+      final savedSettings = await MongoDbService.getLevelSettings();
+      final loadedLevels = LevelsConfig.fromMap(savedSettings);
+
       state = state.copyWith(
         users: users,
         liveAnalytics: analytics,
         activityLogs: logs,
+        levelsConfig: loadedLevels,
         isLoading: false,
         error: users.isEmpty ? 'No users registered yet.' : null,
       );

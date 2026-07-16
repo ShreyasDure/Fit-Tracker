@@ -9,7 +9,7 @@ class ApiConfig {
   // For Chrome/desktop: use localhost
   // For physical phone: use your computer's Wi-Fi IP address
   // For Android emulator: use 10.0.2.2
-  static const String backendUrl = 'http://10.163.94.214:3000/api';
+  static const String backendUrl = 'http://172.23.253.214:3000/api';
 
   // ─── Wger (Open Source Workout API) ───
   // No API key needed!

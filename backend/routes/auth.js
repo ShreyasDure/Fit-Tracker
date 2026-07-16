@@ -93,6 +93,8 @@ router.post('/register', async (req, res) => {
       email: key,
       password: stored.password,
       role: stored.role,
+      isOnline: true,
+      lastActive: new Date(),
     });
     await user.save();
     
@@ -143,6 +145,10 @@ router.post('/login', async (req, res) => {
     if (!user.isActive) {
       return res.status(403).json({ error: 'Account is deactivated' });
     }
+
+    user.isOnline = true;
+    user.lastActive = new Date();
+    await user.save({ validateBeforeSave: false });
 
     const token = jwt.sign(
       { userId: user._id },
@@ -383,6 +389,31 @@ router.put('/support-tickets/:id/status', auth, adminOnly, async (req, res) => {
     }
 
     res.json({ ticket, message: `Ticket marked as ${status}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/status — Update online status
+router.post('/status', auth, async (req, res) => {
+  try {
+    const { isOnline } = req.body;
+    req.user.isOnline = isOnline === true;
+    req.user.lastActive = new Date();
+    await req.user.save({ validateBeforeSave: false });
+    res.json({ success: true, isOnline: req.user.isOnline });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/logout — Explicitly mark as offline on logout
+router.post('/logout', auth, async (req, res) => {
+  try {
+    req.user.isOnline = false;
+    req.user.lastActive = new Date();
+    await req.user.save({ validateBeforeSave: false });
+    res.json({ success: true, message: 'Logged out status synchronized' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -253,3 +253,5 @@ final notificationControllerProvider =
     StateNotifierProvider<NotificationController, NotificationState>((ref) {
   return NotificationController();
 });
+
+final notifPermissionGrantedProvider = StateProvider<bool>((ref) => true);

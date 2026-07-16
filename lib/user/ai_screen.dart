@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:math' as math;
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../core/constants.dart';
 import '../services/ai_service.dart';
 import '../services/health_service.dart';
 import '../controllers/auth_controller.dart';
+import '../services/weather_service.dart';
+import 'home_screen.dart';
+import 'points_screen.dart';
 
 // --- Models & State ---
 class ChatMessage {
@@ -22,7 +27,8 @@ class ChatState {
 }
 
 class ChatController extends StateNotifier<ChatState> {
-  ChatController() : super(ChatState(messages: []));
+  final Ref ref;
+  ChatController(this.ref) : super(ChatState(messages: []));
 
   Future<void> sendMessage(String text, HealthData health, String userName) async {
     if (text.trim().isEmpty) return;
@@ -31,6 +37,7 @@ class ChatController extends StateNotifier<ChatState> {
     state = ChatState(messages: [...state.messages, userMsg], isLoading: true);
 
     try {
+      final weatherCached = await WeatherService.getCachedWeather();
       final response = await AIService.generateText(
         text,
         userData: {
@@ -39,10 +46,21 @@ class ChatController extends StateNotifier<ChatState> {
           "calories": health.calories,
           "activeMinutes": health.activeMinutes,
           "goal": health.stepsGoal,
+          if (weatherCached != null) "weather": {
+            "temp": weatherCached.temp,
+            "condition": weatherCached.condition,
+            "humidity": weatherCached.humidity,
+            "windSpeed": weatherCached.windSpeed,
+            "uvIndex": weatherCached.uvIndex,
+            "recommendation": weatherCached.recommendation,
+          }
         },
       );
       final aiMsg = ChatMessage(text: response, isUser: false);
       state = ChatState(messages: [...state.messages, aiMsg], isLoading: false);
+      ref.invalidate(userActivitiesProvider);
+      ref.invalidate(workoutHistoryProvider);
+      ref.read(authControllerProvider.notifier).refreshProfile();
     } catch (e) {
       final errorMsg = ChatMessage(
           text: "⚠️ AI Coach is temporarily offline. Please check your connection.",
@@ -57,7 +75,7 @@ class ChatController extends StateNotifier<ChatState> {
 }
 
 final chatProvider =
-    StateNotifierProvider.autoDispose<ChatController, ChatState>((ref) => ChatController());
+    StateNotifierProvider.autoDispose<ChatController, ChatState>((ref) => ChatController(ref));
 
 // --- Main AI Screen ---
 class AiScreen extends ConsumerStatefulWidget {
@@ -74,6 +92,14 @@ class _AiScreenState extends ConsumerState<AiScreen> with TickerProviderStateMix
   late AnimationController _orbController;
   late AnimationController _pulseController;
 
+  bool get _isTesting {
+    try {
+      return !kIsWeb && Platform.environment.containsKey('FLUTTER_TEST');
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -81,11 +107,15 @@ class _AiScreenState extends ConsumerState<AiScreen> with TickerProviderStateMix
     _orbController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 4),
-    )..repeat();
+    );
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
+    );
+    if (!_isTesting) {
+      _orbController.repeat();
+      _pulseController.repeat(reverse: true);
+    }
   }
 
   @override
@@ -231,11 +261,11 @@ class _AiScreenState extends ConsumerState<AiScreen> with TickerProviderStateMix
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'FitTracker AI',
+                  'Fit Tracker AI',
                   style: TextStyle(
-                    fontSize: 28,
+                    fontSize: 26,
                     fontWeight: FontWeight.w900,
-                    letterSpacing: -1.5,
+                    letterSpacing: -0.5,
                     color: Colors.white,
                   ),
                 ),
@@ -264,12 +294,12 @@ class _AiScreenState extends ConsumerState<AiScreen> with TickerProviderStateMix
                     ),
                     const SizedBox(width: 10),
                     const Text(
-                      'COACH ONLINE',
+                      'Coach Online',
                       style: TextStyle(
                         color: AppColors.neonGreen,
-                        fontSize: 11,
+                        fontSize: 12,
                         fontWeight: FontWeight.w900,
-                        letterSpacing: 2,
+                        letterSpacing: 0.5,
                       ),
                     ),
                   ],

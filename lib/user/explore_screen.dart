@@ -43,10 +43,10 @@ class ExploreScreen extends StatelessWidget {
                       const Text(
                         'Explore Hub',
                         style: TextStyle(
-                          fontSize: 28,
+                          fontSize: 26,
                           fontWeight: FontWeight.w900,
                           color: Colors.white,
-                          letterSpacing: -1,
+                          letterSpacing: -0.5,
                         ),
                       ),
                       Text(
@@ -54,8 +54,8 @@ class ExploreScreen extends StatelessWidget {
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.3),
                           fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: 1,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
                         ),
                       ),
                     ],

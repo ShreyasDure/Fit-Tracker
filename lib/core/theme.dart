@@ -10,6 +10,7 @@ class AppTheme {
       useMaterial3: true,
       brightness: Brightness.dark,
       scaffoldBackgroundColor: AppColors.background,
+      fontFamily: GoogleFonts.inter().fontFamily,
       colorScheme: const ColorScheme.dark(
         primary: AppColors.neonCyan,
         secondary: AppColors.neonGreen,
@@ -94,9 +95,10 @@ class AppTheme {
         scrolledUnderElevation: 0,
         centerTitle: false,
         titleTextStyle: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
+          fontSize: 26,
+          fontWeight: FontWeight.w900,
           color: AppColors.textPrimary,
+          letterSpacing: -0.5,
         ),
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
@@ -171,6 +173,7 @@ class AppTheme {
       useMaterial3: true,
       brightness: Brightness.light,
       scaffoldBackgroundColor: const Color(0xFFF5F5F8),
+      fontFamily: GoogleFonts.inter().fontFamily,
       colorScheme: const ColorScheme.light(
         primary: Color(0xFF00897B),
         secondary: Color(0xFF2E7D32),
@@ -208,7 +211,7 @@ class AppTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Color(0xFF1A1A2E)),
+        titleTextStyle: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Color(0xFF1A1A2E), letterSpacing: -0.5),
         iconTheme: IconThemeData(color: Color(0xFF1A1A2E)),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(

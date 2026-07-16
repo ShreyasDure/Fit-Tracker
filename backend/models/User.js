@@ -58,6 +58,9 @@ const userSchema = new mongoose.Schema({
   // Notification preferences
   pushNotifications: { type: Boolean, default: true },
   emailReminders: { type: Boolean, default: true },
+  // Online Status tracking
+  isOnline: { type: Boolean, default: false },
+  lastActive: { type: Date, default: Date.now },
   // Deactivation info
   deactivationReason: { type: String, default: null },
   deactivatedAt: { type: Date, default: null },
